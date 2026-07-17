@@ -73,6 +73,7 @@ flutter:
   assets:
     - assets/js/novel_tap.js
     - assets/js/manga_tap.js
+    - assets/logo.svg
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

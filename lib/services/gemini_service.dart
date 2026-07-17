@@ -6,13 +6,14 @@ import 'package:taplingo/models/meaning_result.dart';
 
 /// Gemini-only AI backend for word/sentence meanings (text + vision).
 class GeminiService {
-  static const modelName = 'gemini-2.0-flash';
+  static const modelName = 'gemini-3.1-flash-lite';
 
-  GenerativeModel _model(String apiKey) => GenerativeModel(
+  GenerativeModel _model(String apiKey, {int? maxTokens}) => GenerativeModel(
         model: modelName,
         apiKey: apiKey,
         generationConfig: GenerationConfig(
-          temperature: 0.4,
+          temperature: 0.0,
+          maxOutputTokens: maxTokens ?? 200,
           responseMimeType: 'application/json',
         ),
       );
@@ -22,23 +23,15 @@ class GeminiService {
     required String word,
     required String sentence,
   }) async {
-    final prompt = '''
-Explain the word "$word" as it's used in: "$sentence".
-Use very simple, everyday words — explain it like you're talking to a 10-year-old.
-
-Respond ONLY with valid JSON in this exact shape:
-{
-  "identifiedText": "$word",
-  "plainMeaning": "plain dictionary-style meaning of the word",
-  "contextualMeaning": "how the word is specifically being used in this sentence",
-  "hinglish": "the word's meaning in Hinglish (mix of Hindi and English, casual and natural)",
-  "example": "one short, simple example sentence using the word"
-}
-Keep every part short.
-''';
+    final prompt =
+        'Word: "$word" in "$sentence". Fill JSON: '
+        '{"identifiedText":"$word","plainMeaning":"simple meaning",'
+        '"contextualMeaning":"meaning in this sentence",'
+        '"hinglish":"Hindi-English meaning","example":"example sentence"}';
 
     try {
-      final response = await _model(apiKey).generateContent([Content.text(prompt)]);
+      final response = await _model(apiKey)
+          .generateContent([Content.text(prompt)]);
       return _parse(response.text, taps: 2);
     } catch (e) {
       return MeaningResult.error(_friendlyError(e), taps: 2);
@@ -49,21 +42,14 @@ Keep every part short.
     required String apiKey,
     required String sentence,
   }) async {
-    final prompt = '''
-Explain the full meaning of this sentence: "$sentence".
-Use very simple, everyday words — explain it like you're talking to a 10-year-old.
-
-Respond ONLY with valid JSON in this exact shape:
-{
-  "identifiedText": "the full sentence",
-  "plainMeaning": "what the whole sentence means, in plain words",
-  "hinglish": "the same sentence's meaning in Hinglish (mix of Hindi and English, casual and natural)"
-}
-Keep both parts short.
-''';
+    final prompt =
+        'Sentence: "$sentence". Fill JSON: '
+        '{"identifiedText":"the sentence","plainMeaning":"simple meaning",'
+        '"hinglish":"Hindi-English meaning"}';
 
     try {
-      final response = await _model(apiKey).generateContent([Content.text(prompt)]);
+      final response = await _model(apiKey)
+          .generateContent([Content.text(prompt)]);
       return _parse(response.text, taps: 3);
     } catch (e) {
       return MeaningResult.error(_friendlyError(e), taps: 3);
@@ -81,42 +67,20 @@ Keep both parts short.
   }) async {
     final isWord = taps == 2;
     final instruction = isWord
-        ? '''
-Here is a manga page and a cropped close-up. The user tapped at pixel ($x, $y) on the full image — the crop shows exactly what's there.
-Identify the exact word/phrase at that tap point, then explain it simply enough for a kid to understand, using the surrounding dialogue in the full image for context.
-
-Respond ONLY with valid JSON:
-{
-  "identifiedText": "the word or short phrase at the tap point",
-  "plainMeaning": "plain meaning of that word/phrase",
-  "contextualMeaning": "how it's used in the surrounding dialogue",
-  "hinglish": "meaning in Hinglish (casual Hindi-English mix)",
-  "example": "one short simple example sentence using the word"
-}
-Keep every part short.
-'''
-        : '''
-Here is a manga page and a cropped close-up. The user tapped at pixel ($x, $y) on the full image.
-First identify which full sentence or dialogue line that point belongs to (use the crop to pinpoint the exact spot, the full image for the rest of the line/bubble).
-Then give the meaning of that whole sentence, simply enough for a kid to understand, and its meaning in Hinglish.
-
-Respond ONLY with valid JSON:
-{
-  "identifiedText": "the full sentence or dialogue line",
-  "plainMeaning": "what the whole sentence means, in plain words",
-  "hinglish": "the sentence's meaning in Hinglish (casual Hindi-English mix)"
-}
-Keep both parts short.
-''';
+        ? 'Manga page + crop at ($x,$y). Identify word at tap. Fill JSON: '
+            '{"identifiedText":"word","plainMeaning":"simple meaning",'
+            '"contextualMeaning":"meaning in dialogue",'
+            '"hinglish":"Hindi-English meaning","example":"example sentence"}'
+        : 'Manga page + crop at ($x,$y). Identify full dialogue line at tap. Fill JSON: '
+            '{"identifiedText":"the line","plainMeaning":"simple meaning",'
+            '"hinglish":"Hindi-English meaning"}';
 
     try {
       final response = await _model(apiKey).generateContent([
         Content.multi([
           TextPart(instruction),
           DataPart(_mimeOf(fullImageBytes), fullImageBytes),
-          TextPart(
-            'Full manga page image above. Crop close-up of the tap region below:',
-          ),
+          TextPart('Full page above. Crop below:'),
           DataPart('image/png', cropPng),
         ]),
       ]);
@@ -160,6 +124,15 @@ Keep both parts short.
       if (raw.startsWith('```')) {
         raw = raw.replaceFirst(RegExp(r'^```(?:json)?\s*'), '');
         raw = raw.replaceFirst(RegExp(r'\s*```$'), '');
+      }
+      // Strip any residual thinking tags (e.g. <|channel|>thought\n<channel|>)
+      raw = raw.replaceAll(RegExp(r'<\|?channel\|?>.*?<\|?channel\|?>', dotAll: true), '');
+      raw = raw.replaceAll(RegExp(r'<think>.*?</think>', dotAll: true), '');
+      raw = raw.trim();
+      // Try to extract JSON if surrounded by other text
+      final jsonMatch = RegExp(r'\{[^{}]*\}', dotAll: true).firstMatch(raw);
+      if (jsonMatch != null) {
+        raw = jsonMatch.group(0)!;
       }
       final map = jsonDecode(raw) as Map<String, dynamic>;
       return MeaningResult.fromJson(map, taps);

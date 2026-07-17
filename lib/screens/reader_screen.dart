@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -60,7 +59,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
           },
           onPageFinished: (url) async {
             await _injectModeScripts();
-            await _maybeRestoreScroll();
+            await _maybeRestoreScroll(url);
             if (mounted) setState(() => _loading = false);
             _persistUrl(url);
           },
@@ -106,49 +105,92 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     await _controller.runJavaScript(js);
   }
 
-  Future<void> _maybeRestoreScroll() async {
-    if (_isManga || _restoredScroll) return;
-    final y = widget.item.lastReadPosition;
+  Future<void> _maybeRestoreScroll(String url) async {
+    if (_restoredScroll) return;
+
+    final currentItem = ref.read(libraryProvider).firstWhere(
+          (e) => e.id == widget.item.id,
+          orElse: () => widget.item,
+        );
+
+    final cleanCurrentUrl = _normalizeUrl(url);
+    final cleanSavedUrl = _normalizeUrl(currentItem.lastReadUrl);
+
+    if (cleanCurrentUrl != cleanSavedUrl) {
+      _restoredScroll = true;
+      return;
+    }
+
+    final y = currentItem.lastReadPosition;
     if (y <= 0) {
       _restoredScroll = true;
       return;
     }
-    await Future<void>.delayed(const Duration(milliseconds: 350));
-    await _controller.runJavaScript(JsInjection.scrollToY(y));
+
     _restoredScroll = true;
+
+    // Retry scrolling a few times as the page/images load to handle layout shifts
+    for (final delay in [200, 500, 1000, 1500, 2500]) {
+      await Future<void>.delayed(Duration(milliseconds: delay));
+      if (!mounted) return;
+      try {
+        await _controller.runJavaScript(JsInjection.scrollToY(y));
+      } catch (_) {}
+    }
+  }
+
+  String _normalizeUrl(String url) {
+    try {
+      final uri = Uri.parse(url);
+      var path = uri.path;
+      if (path.endsWith('/')) {
+        path = path.substring(0, path.length - 1);
+      }
+      final query = uri.hasQuery ? '?${uri.query}' : '';
+      return '${uri.scheme}://${uri.host}$path$query';
+    } catch (_) {
+      return url;
+    }
   }
 
   Future<void> _captureScrollPosition() async {
     if (!mounted) return;
     try {
-      if (_isManga) {
-        final url = await _controller.currentUrl();
-        if (url != null && url.isNotEmpty) {
-          await ref.read(libraryProvider.notifier).updateProgress(
-                id: widget.item.id,
-                lastReadUrl: url,
-              );
-        }
-        return;
-      }
       final result = await _controller
-          .runJavaScriptReturningResult(JsInjection.getScrollY);
+          .runJavaScriptReturningResult(JsInjection.getScrollY)
+          .timeout(const Duration(milliseconds: 250));
       final y = double.tryParse(result.toString()) ?? 0;
       final url = await _controller.currentUrl();
-      await ref.read(libraryProvider.notifier).updateProgress(
-            id: widget.item.id,
-            lastReadUrl: url,
-            lastReadPosition: y,
-          );
+      if (url != null && url.isNotEmpty) {
+        await ref.read(libraryProvider.notifier).updateProgress(
+              id: widget.item.id,
+              lastReadUrl: url,
+              lastReadPosition: y,
+            );
+      }
     } catch (_) {}
   }
 
   Future<void> _persistUrl(String url) async {
     if (url.isEmpty) return;
-    await ref.read(libraryProvider.notifier).updateProgress(
-          id: widget.item.id,
-          lastReadUrl: url,
+    final currentItem = ref.read(libraryProvider).firstWhere(
+          (e) => e.id == widget.item.id,
+          orElse: () => widget.item,
         );
+    if (_normalizeUrl(currentItem.lastReadUrl) != _normalizeUrl(url)) {
+      // Navigated to a new page/chapter. Save the new URL and reset the scroll position.
+      await ref.read(libraryProvider.notifier).updateProgress(
+            id: widget.item.id,
+            lastReadUrl: url,
+            lastReadPosition: 0,
+          );
+    } else {
+      // Just save the URL (though it's the same)
+      await ref.read(libraryProvider.notifier).updateProgress(
+            id: widget.item.id,
+            lastReadUrl: url,
+          );
+    }
   }
 
   void _onJsMessage(JavaScriptMessage message) {
@@ -338,9 +380,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
                   children: [
                     IconButton(
                       icon: const Icon(Icons.arrow_back),
-                      onPressed: () async {
-                        await _captureScrollPosition();
-                        if (context.mounted) Navigator.pop(context);
+                      onPressed: () {
+                        _captureScrollPosition().ignore();
+                        Navigator.pop(context);
                       },
                     ),
                     Expanded(
@@ -368,6 +410,13 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
                       onPressed: () async {
                         if (await _controller.canGoBack()) {
                           await _controller.goBack();
+                        } else if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('No previous page history.'),
+                              duration: Duration(seconds: 2),
+                            ),
+                          );
                         }
                       },
                       icon: const Icon(Icons.arrow_back_ios_new, size: 16),

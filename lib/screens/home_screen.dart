@@ -88,10 +88,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     Navigator.of(context).push(
       PageRouteBuilder(
         transitionDuration: const Duration(milliseconds: 350),
-        pageBuilder: (_, anim, _) => ReaderScreen(item: item),
-        transitionsBuilder: (_, anim, _) child) {
+        pageBuilder: (context, animation, secondaryAnimation) =>
+            ReaderScreen(item: item),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
           return FadeTransition(
-            opacity: anim,
+            opacity: animation,
             child: child,
           );
         },
@@ -109,7 +110,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('TapLingo'),
+        title: const Text(
+          'TapLingo',
+          style: TextStyle(
+            fontWeight: FontWeight.w800,
+            letterSpacing: 0.5,
+          ),
+        ),
         actions: [
           if (!hasKey)
             IconButton(
@@ -122,6 +129,23 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                 child: const Icon(Icons.key_off_rounded),
               ),
             ),
+          IconButton(
+            tooltip: 'Search Library',
+            onPressed: () async {
+              final library = ref.read(libraryProvider);
+              final selected = await showSearch(
+                context: context,
+                delegate: LibrarySearchDelegate(
+                  library: library,
+                  onDelete: (id) => ref.read(libraryProvider.notifier).remove(id),
+                ),
+              );
+              if (selected != null) {
+                _openReader(selected);
+              }
+            },
+            icon: const Icon(Icons.search_rounded),
+          ),
           IconButton(
             tooltip: 'Settings',
             onPressed: () => Navigator.of(context).push(
@@ -209,6 +233,67 @@ class _LibraryGrid extends StatelessWidget {
           onDelete: () => onDelete(item.id),
         );
       },
+    );
+  }
+}
+
+class LibrarySearchDelegate extends SearchDelegate<LibraryItem?> {
+  final List<LibraryItem> library;
+  final void Function(String id) onDelete;
+
+  LibrarySearchDelegate({required this.library, required this.onDelete})
+      : super(searchFieldLabel: 'Search library...');
+
+  @override
+  List<Widget>? buildActions(BuildContext context) {
+    if (query.isEmpty) return [];
+    return [
+      IconButton(
+        icon: const Icon(Icons.clear),
+        onPressed: () => query = '',
+      ),
+    ];
+  }
+
+  @override
+  Widget? buildLeading(BuildContext context) {
+    return IconButton(
+      icon: const Icon(Icons.arrow_back),
+      onPressed: () => close(context, null),
+    );
+  }
+
+  @override
+  Widget buildResults(BuildContext context) => _buildList(context);
+
+  @override
+  Widget buildSuggestions(BuildContext context) => _buildList(context);
+
+  Widget _buildList(BuildContext context) {
+    final lower = query.toLowerCase().trim();
+    final matches = library
+        .where((e) => e.name.toLowerCase().contains(lower))
+        .toList()
+        .reversed
+        .toList();
+
+    if (matches.isEmpty) {
+      return Center(
+        child: Text(
+          'No matching items found.',
+          style: TextStyle(
+            color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
+          ),
+        ),
+      );
+    }
+
+    return _LibraryGrid(
+      items: matches,
+      type: LibraryType.novel, // Arbitrary, since it won't be empty here
+      onAdd: () {},
+      onOpen: (item) => close(context, item),
+      onDelete: onDelete,
     );
   }
 }
