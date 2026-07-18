@@ -41,6 +41,18 @@ Future<Uint8List?> cropAroundTap({
   );
   final dst = ui.Rect.fromLTWH(0, 0, w.toDouble(), h.toDouble());
   canvas.drawImageRect(image, src, dst, ui.Paint());
+
+  final localX = (cx - left).toDouble();
+  final localY = (cy - top).toDouble();
+  final markerRadius = math.max(6.0, w * 0.03);
+  canvas.drawCircle(ui.Offset(localX, localY), markerRadius,
+      ui.Paint()..color = const ui.Color(0xFFFF0000));
+  canvas.drawCircle(ui.Offset(localX, localY), markerRadius,
+      ui.Paint()
+        ..color = const ui.Color(0xFFFFFFFF)
+        ..style = ui.PaintingStyle.stroke
+        ..strokeWidth = 2);
+
   final picture = recorder.endRecording();
   final cropped = await picture.toImage(w, h);
   final byteData = await cropped.toByteData(format: ui.ImageByteFormat.png);

@@ -256,8 +256,11 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     final imageSrc = map['imageSrc'] as String?;
     final relX = (map['relX'] as num?)?.toDouble() ?? payload.x ?? 0;
     final relY = (map['relY'] as num?)?.toDouble() ?? payload.y ?? 0;
-    final imgW = (map['imgWidth'] as num?)?.toDouble() ?? 1;
-    final imgH = (map['imgHeight'] as num?)?.toDouble() ?? 1;
+    
+    final rawW = (map['imgWidth'] as num?)?.toDouble() ?? 0;
+    final rawH = (map['imgHeight'] as num?)?.toDouble() ?? 0;
+    final imgW = rawW <= 0 ? 1.0 : rawW;
+    final imgH = rawH <= 0 ? 1.0 : rawH;
 
     if (!mounted) return;
     await showMeaningBottomSheet(
@@ -291,20 +294,11 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
             taps: taps,
           );
         }
-        // Pixel coords on natural image for Gemini prompt
-        final scaleX =
-            ((map['naturalWidth'] as num?)?.toDouble() ?? imgW) / imgW;
-        final scaleY =
-            ((map['naturalHeight'] as num?)?.toDouble() ?? imgH) / imgH;
-        final px = relX * scaleX;
-        final py = relY * scaleY;
 
         return ref.read(geminiServiceProvider).explainMangaTap(
               apiKey: apiKey,
               fullImageBytes: full,
               cropPng: crop,
-              x: px,
-              y: py,
               taps: taps,
             );
       },
@@ -358,106 +352,116 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: Stack(
-        children: [
-          Hero(
-            tag: 'library-${widget.item.id}',
-            child: Material(
-              child: WebViewWidget(controller: _controller),
-            ),
-          ),
-          AnimatedSlide(
-            duration: const Duration(milliseconds: 250),
-            offset: _chromeVisible ? Offset.zero : const Offset(0, -1.2),
-            child: SafeArea(
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        await _captureScrollPosition();
+        if (mounted) {
+          // ignore: use_build_context_synchronously
+          Navigator.pop(context);
+        }
+      },
+      child: Scaffold(
+        body: Stack(
+          children: [
+            Hero(
+              tag: 'library-${widget.item.id}',
               child: Material(
-                color: Theme.of(context)
-                    .colorScheme
-                    .surface
-                    .withValues(alpha: 0.92),
-                child: Row(
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.arrow_back),
-                      onPressed: () {
-                        _captureScrollPosition().ignore();
-                        Navigator.pop(context);
-                      },
-                    ),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            widget.item.name,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontWeight: FontWeight.w600),
-                          ),
-                          Text(
-                            _isManga
-                                ? 'Double-tap word · Triple-tap line'
-                                : 'Double-tap word · Triple-tap sentence',
-                            style: Theme.of(context).textTheme.labelSmall,
-                          ),
-                        ],
+                child: WebViewWidget(controller: _controller),
+              ),
+            ),
+            AnimatedSlide(
+              duration: const Duration(milliseconds: 250),
+              offset: _chromeVisible ? Offset.zero : const Offset(0, -1.2),
+              child: SafeArea(
+                child: Material(
+                  color: Theme.of(context)
+                      .colorScheme
+                      .surface
+                      .withValues(alpha: 0.92),
+                  child: Row(
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.arrow_back),
+                        onPressed: () {
+                          Navigator.maybePop(context);
+                        },
                       ),
-                    ),
-                    IconButton(
-                      tooltip: 'Back in page',
-                      onPressed: () async {
-                        if (await _controller.canGoBack()) {
-                          await _controller.goBack();
-                        } else if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('No previous page history.'),
-                              duration: Duration(seconds: 2),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              widget.item.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(fontWeight: FontWeight.w600),
                             ),
-                          );
-                        }
-                      },
-                      icon: const Icon(Icons.arrow_back_ios_new, size: 16),
-                    ),
-                    IconButton(
-                      tooltip: 'Reload',
-                      onPressed: () => _controller.reload(),
-                      icon: const Icon(Icons.refresh),
-                    ),
-                    IconButton(
-                      tooltip: _chromeVisible ? 'Hide bar' : 'Show bar',
-                      onPressed: () =>
-                          setState(() => _chromeVisible = !_chromeVisible),
-                      icon: Icon(
-                        _chromeVisible
-                            ? Icons.fullscreen
-                            : Icons.fullscreen_exit,
+                            Text(
+                              _isManga
+                                  ? 'Double-tap word · Triple-tap line'
+                                  : 'Double-tap word · Triple-tap sentence',
+                              style: Theme.of(context).textTheme.labelSmall,
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
-                  ],
+                      IconButton(
+                        tooltip: 'Back in page',
+                        onPressed: () async {
+                          if (await _controller.canGoBack()) {
+                            await _controller.goBack();
+                          } else if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('No previous page history.'),
+                                duration: Duration(seconds: 2),
+                              ),
+                            );
+                          }
+                        },
+                        icon: const Icon(Icons.arrow_back_ios_new, size: 16),
+                      ),
+                      IconButton(
+                        tooltip: 'Reload',
+                        onPressed: () => _controller.reload(),
+                        icon: const Icon(Icons.refresh),
+                      ),
+                      IconButton(
+                        tooltip: _chromeVisible ? 'Hide bar' : 'Show bar',
+                        onPressed: () =>
+                            setState(() => _chromeVisible = !_chromeVisible),
+                        icon: Icon(
+                          _chromeVisible
+                              ? Icons.fullscreen
+                              : Icons.fullscreen_exit,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
-          ),
-          if (_loading)
-            const Positioned(
-              top: 0,
-              left: 0,
-              right: 0,
-              child: LinearProgressIndicator(minHeight: 2),
-            ),
-          if (!_chromeVisible)
-            Positioned(
-              top: MediaQuery.paddingOf(context).top + 4,
-              right: 8,
-              child: IconButton.filledTonal(
-                onPressed: () => setState(() => _chromeVisible = true),
-                icon: const Icon(Icons.more_horiz),
+            if (_loading)
+              const Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                child: LinearProgressIndicator(minHeight: 2),
               ),
-            ),
-        ],
+            if (!_chromeVisible)
+              Positioned(
+                top: MediaQuery.paddingOf(context).top + 4,
+                right: 8,
+                child: IconButton.filledTonal(
+                  onPressed: () => setState(() => _chromeVisible = true),
+                  icon: const Icon(Icons.more_horiz),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }

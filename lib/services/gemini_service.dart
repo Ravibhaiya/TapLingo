@@ -61,17 +61,19 @@ class GeminiService {
     required String apiKey,
     required Uint8List fullImageBytes,
     required Uint8List cropPng,
-    required double x,
-    required double y,
     required int taps,
   }) async {
     final isWord = taps == 2;
     final instruction = isWord
-        ? 'Manga page + crop at ($x,$y). Identify word at tap. Fill JSON: '
+        ? 'Image 1 is the full manga page. Use it for surrounding dialogue and story context.\n'
+            'Image 2 is a close-up crop centered on the tapped area. A red dot in Image 2 marks exactly where the reader tapped.\n'
+            'Identify the word under or closest to the red dot. Fill JSON: '
             '{"identifiedText":"word","plainMeaning":"simple meaning",'
             '"contextualMeaning":"meaning in dialogue",'
             '"hinglish":"Hindi-English meaning","example":"example sentence"}'
-        : 'Manga page + crop at ($x,$y). Identify full dialogue line at tap. Fill JSON: '
+        : 'Image 1 is the full manga page. Use it for surrounding dialogue and story context.\n'
+            'Image 2 is a close-up crop centered on the tapped area. A red dot in Image 2 marks exactly where the reader tapped.\n'
+            'Identify the full dialogue line containing the text under or closest to the red dot. Fill JSON: '
             '{"identifiedText":"the line","plainMeaning":"simple meaning",'
             '"hinglish":"Hindi-English meaning"}';
 
@@ -79,8 +81,9 @@ class GeminiService {
       final response = await _model(apiKey).generateContent([
         Content.multi([
           TextPart(instruction),
+          TextPart('Image 1 (Full page):'),
           DataPart(_mimeOf(fullImageBytes), fullImageBytes),
-          TextPart('Full page above. Crop below:'),
+          TextPart('Image 2 (Crop with red dot at tap):'),
           DataPart('image/png', cropPng),
         ]),
       ]);
