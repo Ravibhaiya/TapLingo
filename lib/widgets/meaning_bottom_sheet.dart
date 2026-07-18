@@ -9,6 +9,7 @@ Future<void> showMeaningBottomSheet({
   required Future<MeaningResult> Function() load,
   required int taps,
   String? fallbackSpeakText,
+  String? sentenceContext,
 }) {
   return showModalBottomSheet(
     context: context,
@@ -19,6 +20,7 @@ Future<void> showMeaningBottomSheet({
       load: load,
       taps: taps,
       fallbackSpeakText: fallbackSpeakText,
+      sentenceContext: sentenceContext,
     ),
   );
 }
@@ -27,12 +29,14 @@ class MeaningBottomSheet extends ConsumerStatefulWidget {
   final Future<MeaningResult> Function() load;
   final int taps;
   final String? fallbackSpeakText;
+  final String? sentenceContext;
 
   const MeaningBottomSheet({
     super.key,
     required this.load,
     required this.taps,
     this.fallbackSpeakText,
+    this.sentenceContext,
   });
 
   @override
@@ -84,7 +88,7 @@ class _MeaningBottomSheetState extends ConsumerState<MeaningBottomSheet> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final isWord = widget.taps == 2;
+    final isWord = widget.taps != 3;
 
     return DraggableScrollableSheet(
       initialChildSize: 0.48,
@@ -182,6 +186,40 @@ class _MeaningBottomSheetState extends ConsumerState<MeaningBottomSheet> {
               fontWeight: FontWeight.w700,
               color: theme.colorScheme.primary,
             ),
+          ),
+        ),
+      );
+      widgets.add(const SizedBox(height: 16));
+    }
+
+    if (isWord && widget.sentenceContext != null && widget.sentenceContext!.isNotEmpty) {
+      widgets.add(
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
+            ),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.format_quote_rounded, size: 16,
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.45)),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  widget.sentenceContext!,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    fontStyle: FontStyle.italic,
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
       );

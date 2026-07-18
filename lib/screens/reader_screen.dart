@@ -234,6 +234,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       context: context,
       taps: taps,
       fallbackSpeakText: taps == 3 ? sentence : word,
+      sentenceContext: taps != 3 ? sentence : null,
       load: () async {
         final gemini = ref.read(geminiServiceProvider);
         if (taps == 3) {
