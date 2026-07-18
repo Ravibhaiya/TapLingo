@@ -204,6 +204,14 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   void _onJsMessage(JavaScriptMessage message) {
     try {
       final map = jsonDecode(message.message) as Map<String, dynamic>;
+      
+      // Handle scroll restoration message from injected JS
+      if (map['type'] == 'scrollRestoration') {
+        final status = map['status'] as String?;
+        debugPrint('[ScrollRestoration] Completed with status: $status');
+        return;
+      }
+
       final payload = TapPayload.fromJson(map);
       if (payload.taps < 1) return;
       if (_isManga) {

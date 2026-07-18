@@ -2,6 +2,36 @@
   if (window.__tlgInstalled) return;
   window.__tlgInstalled = true;
 
+  function getScrollContainer() {
+    const defaultContainer = document.scrollingElement || document.documentElement || document.body;
+    const candidates = [];
+    const elList = document.querySelectorAll('body, main, div, section, article, [class*="read"], [class*="chapter"], [class*="manga"], [id*="read"], [id*="chapter"]');
+    elList.forEach(el => {
+      if (el === document.documentElement || el === document.body) return;
+      const style = window.getComputedStyle(el);
+      if (style.overflowY !== 'auto' && style.overflowY !== 'scroll') return;
+      const r = el.getBoundingClientRect();
+      if (r.height < window.innerHeight * 0.6) return;
+      if (el.scrollHeight <= el.clientHeight + 50) return;
+      candidates.push(el);
+    });
+    if (!candidates.length) return defaultContainer;
+    candidates.sort((a, b) => (b.scrollHeight - b.clientHeight) - (a.scrollHeight - a.clientHeight));
+    return candidates[0];
+  }
+
+  window.__tlgScrollResolver = {
+    getContainer: getScrollContainer,
+    isWindow: function(container) {
+      return container === document.documentElement || container === document.body || container === window;
+    },
+    getY: function() {
+      const container = getScrollContainer();
+      const isWin = container === document.documentElement || container === document.body || container === window;
+      return isWin ? (window.scrollY || window.pageYOffset || 0) : container.scrollTop;
+    }
+  };
+
   document.querySelectorAll('*').forEach(function(el) {
     try {
       el.style.userSelect = 'none';

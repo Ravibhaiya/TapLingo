@@ -13,70 +13,137 @@ class JsInjection {
     return _manga ??= await rootBundle.loadString('assets/js/manga_tap.js');
   }
 
-  static const getScrollY = 'window.scrollY || window.pageYOffset || 0;';
+  static const getScrollY =
+      '((window.__tlgScrollResolver && window.__tlgScrollResolver.getY) ? window.__tlgScrollResolver.getY() : (window.scrollY || window.pageYOffset || 0));';
 
   static String scrollToY(double y) =>
-      'window.scrollTo({ top: $y, left: 0, behavior: "auto" }); true;';
+      '(function() { '
+      'const resolver = window.__tlgScrollResolver; '
+      'const container = resolver ? resolver.getContainer() : (document.scrollingElement || document.documentElement || document.body); '
+      'const isWindow = resolver ? resolver.isWindow(container) : true; '
+      'if (isWindow) { window.scrollTo({ top: $y, left: 0, behavior: "auto" }); } '
+      'else { if (typeof container.scrollTo === "function") { container.scrollTo({ top: $y, left: 0, behavior: "auto" }); } else { container.scrollTop = $y; } } '
+      'return true; '
+      '})();';
 
   /// Injects JS that keeps retrying `scrollTo(targetY)` whenever images load
   /// or the DOM mutates, until the page is tall enough and we've settled at
   /// the target position — or a 15-second timeout is hit.
   static String scrollWithImageWait(double y) => '''
 (function() {
-  var TARGET = $y;
-  var settled = 0;
-  var maxTime = 15000;
-  var start = Date.now();
-  var done = false;
+  const TARGET = $y;
+  const maxTime = 15000;
+  const start = Date.now();
+  const STEP_TIMEOUT = 2500;
+  const STALL_LIMIT = 2;
 
-  function tryScroll() {
-    if (done) return;
-    if (Date.now() - start > maxTime) { done = true; return; }
+  const resolver = window.__tlgScrollResolver;
+  const container = resolver ? resolver.getContainer() : (document.scrollingElement || document.documentElement || document.body);
+  const isWindow = resolver ? resolver.isWindow(container) : true;
 
-    var docH = document.documentElement.scrollHeight;
-    window.scrollTo({ top: TARGET, left: 0, behavior: "auto" });
+  function getScrollHeight() {
+    return isWindow 
+      ? Math.max(document.documentElement.scrollHeight, document.body.scrollHeight)
+      : container.scrollHeight;
+  }
 
-    // Check if we actually reached the target (or close enough)
-    var actual = window.scrollY || window.pageYOffset || 0;
-    if (Math.abs(actual - TARGET) < 5) {
-      settled++;
-      // Wait for 2 consecutive checks to confirm layout is stable
-      if (settled >= 2) { done = true; return; }
+  function getScrollY() {
+    return isWindow 
+      ? (window.scrollY || window.pageYOffset || 0)
+      : container.scrollTop;
+  }
+
+  function scrollTo(y) {
+    if (isWindow) {
+      window.scrollTo({ top: y, left: 0, behavior: 'auto' });
     } else {
-      settled = 0;
+      if (typeof container.scrollTo === 'function') {
+        container.scrollTo({ top: y, left: 0, behavior: 'auto' });
+      } else {
+        container.scrollTop = y;
+      }
     }
   }
 
-  // Initial attempt
-  tryScroll();
-
-  // Watch for any DOM changes (lazy-loaded images inserted)
-  var observer = new MutationObserver(function() {
-    tryScroll();
-  });
-  observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["src", "data-src"] });
-
-  // Listen for image load events (images that are already in DOM but loading)
-  document.addEventListener("load", function(e) {
-    if (e.target && e.target.tagName === "IMG") tryScroll();
-  }, true);
-
-  // Periodic retry as a safety net
-  var interval = setInterval(function() {
-    tryScroll();
-    if (done) {
-      clearInterval(interval);
-      observer.disconnect();
+  function disableAnchoring() {
+    if (isWindow) {
+      document.documentElement.style.overflowAnchor = 'none';
+      document.body.style.overflowAnchor = 'none';
+    } else {
+      container.style.overflowAnchor = 'none';
     }
-  }, 300);
+  }
 
-  // Hard stop after maxTime
-  setTimeout(function() {
-    done = true;
-    clearInterval(interval);
-    observer.disconnect();
-  }, maxTime);
+  function enableAnchoring() {
+    if (isWindow) {
+      document.documentElement.style.overflowAnchor = '';
+      document.body.style.overflowAnchor = '';
+    } else {
+      container.style.overflowAnchor = '';
+    }
+  }
 
+  let status = 'timeout';
+  let stalls = 0;
+
+  async function run() {
+    try {
+      disableAnchoring();
+
+      while (Date.now() - start < maxTime) {
+        const currentHeight = getScrollHeight();
+        const viewportHeight = isWindow ? window.innerHeight : container.clientHeight;
+        const maxScroll = currentHeight - viewportHeight;
+
+        // Verify/scroll to target
+        if (maxScroll >= TARGET) {
+          scrollTo(TARGET);
+          await new Promise(r => setTimeout(r, 100));
+          if (Math.abs(getScrollY() - TARGET) < 10) {
+            status = 'reached';
+            break;
+          }
+          continue; // Retry target, do not overshoot to maxScroll
+        }
+
+        // Scroll to current bottom to trigger lazy loading
+        scrollTo(maxScroll);
+
+        // Wait for page to grow
+        const stepStart = Date.now();
+        let grew = false;
+        while (Date.now() - stepStart < STEP_TIMEOUT) {
+          await new Promise(r => setTimeout(r, 100));
+          if (getScrollHeight() > currentHeight) {
+            grew = true;
+            break;
+          }
+        }
+
+        if (grew) {
+          stalls = 0;
+        } else {
+          stalls++;
+          if (stalls >= STALL_LIMIT) {
+            scrollTo(TARGET); // Final clamp scroll
+            status = 'end-of-content';
+            break;
+          }
+        }
+      }
+    } finally {
+      enableAnchoring();
+      // Report status back to Flutter channel
+      if (window.TapLingoChannel) {
+        window.TapLingoChannel.postMessage(JSON.stringify({
+          type: 'scrollRestoration',
+          status: status
+        }));
+      }
+    }
+  }
+
+  run();
   true;
 })();
 ''';
