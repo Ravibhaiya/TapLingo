@@ -1,22 +1,64 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:google_generative_ai/google_generative_ai.dart';
+import 'package:http/http.dart' as http;
 import 'package:taplingo/models/meaning_result.dart';
 
-/// Gemini-only AI backend for word/sentence meanings (text + vision).
+/// Gemini AI backend for word/sentence meanings (text + vision).
+/// Uses direct REST API calls for full control over thinkingConfig.
 class GeminiService {
   static const modelName = 'gemini-3.1-flash-lite';
+  static final _endpoint = Uri.parse(
+    'https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent',
+  );
 
-  GenerativeModel _model(String apiKey, {int? maxTokens}) => GenerativeModel(
-        model: modelName,
-        apiKey: apiKey,
-        generationConfig: GenerationConfig(
-          temperature: 0.0,
-          maxOutputTokens: maxTokens ?? 200,
-          responseMimeType: 'application/json',
-        ),
-      );
+  /// Core method: sends parts to Gemini and returns the raw response map.
+  Future<Map<String, dynamic>> _generate(
+    String apiKey,
+    List<Map<String, dynamic>> parts,
+  ) async {
+    final body = jsonEncode({
+      'contents': [
+        {
+          'parts': parts,
+        }
+      ],
+      'generationConfig': {
+        'temperature': 0.0,
+        'maxOutputTokens': 800,
+        'responseMimeType': 'application/json',
+        'thinkingConfig': {'thinkingLevel': 'NONE'},
+      },
+    });
+
+    final response = await http.post(
+      _endpoint,
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': apiKey,
+      },
+      body: body,
+    );
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception('HTTP ${response.statusCode}: ${response.body}');
+    }
+
+    return jsonDecode(response.body) as Map<String, dynamic>;
+  }
+
+  /// Extracts the text content from a Gemini REST response.
+  String? _extractText(Map<String, dynamic> json) {
+    final candidates = json['candidates'] as List?;
+    if (candidates == null || candidates.isEmpty) return null;
+    final content =
+        candidates.first['content'] as Map<String, dynamic>?;
+    final parts = content?['parts'] as List?;
+    if (parts == null || parts.isEmpty) return null;
+    return parts
+        .map((p) => (p as Map<String, dynamic>)['text'] as String? ?? '')
+        .join();
+  }
 
   Future<MeaningResult> explainWord({
     required String apiKey,
@@ -30,11 +72,12 @@ class GeminiService {
         '"hinglish":"Hindi-English meaning","example":"example sentence"}';
 
     try {
-      final response = await _model(apiKey)
-          .generateContent([Content.text(prompt)]);
-      return _parse(response.text, taps: 2);
+      final json = await _generate(apiKey, [
+        {'text': prompt},
+      ]);
+      return _parse(_extractText(json), taps: 1);
     } catch (e) {
-      return MeaningResult.error(_friendlyError(e), taps: 2);
+      return MeaningResult.error(_friendlyError(e), taps: 1);
     }
   }
 
@@ -48,9 +91,10 @@ class GeminiService {
         '"hinglish":"Hindi-English meaning"}';
 
     try {
-      final response = await _model(apiKey)
-          .generateContent([Content.text(prompt)]);
-      return _parse(response.text, taps: 3);
+      final json = await _generate(apiKey, [
+        {'text': prompt},
+      ]);
+      return _parse(_extractText(json), taps: 3);
     } catch (e) {
       return MeaningResult.error(_friendlyError(e), taps: 3);
     }
@@ -78,16 +122,24 @@ class GeminiService {
             '"hinglish":"Hindi-English meaning"}';
 
     try {
-      final response = await _model(apiKey).generateContent([
-        Content.multi([
-          TextPart(instruction),
-          TextPart('Image 1 (Full page):'),
-          DataPart(_mimeOf(fullImageBytes), fullImageBytes),
-          TextPart('Image 2 (Crop with red dot at tap):'),
-          DataPart('image/png', cropPng),
-        ]),
+      final json = await _generate(apiKey, [
+        {'text': instruction},
+        {'text': 'Image 1 (Full page):'},
+        {
+          'inline_data': {
+            'mime_type': _mimeOf(fullImageBytes),
+            'data': base64Encode(fullImageBytes),
+          }
+        },
+        {'text': 'Image 2 (Crop with red dot at tap):'},
+        {
+          'inline_data': {
+            'mime_type': 'image/png',
+            'data': base64Encode(cropPng),
+          }
+        },
       ]);
-      return _parse(response.text, taps: taps);
+      return _parse(_extractText(json), taps: taps);
     } catch (e) {
       return MeaningResult.error(_friendlyError(e), taps: taps);
     }
@@ -128,9 +180,6 @@ class GeminiService {
         raw = raw.replaceFirst(RegExp(r'^```(?:json)?\s*'), '');
         raw = raw.replaceFirst(RegExp(r'\s*```$'), '');
       }
-      // Strip any residual thinking tags (e.g. <|channel|>thought\n<channel|>)
-      raw = raw.replaceAll(RegExp(r'<\|?channel\|?>.*?<\|?channel\|?>', dotAll: true), '');
-      raw = raw.replaceAll(RegExp(r'<think>.*?</think>', dotAll: true), '');
       raw = raw.trim();
       // Try to extract JSON if surrounded by other text
       final jsonMatch = RegExp(r'\{[^{}]*\}', dotAll: true).firstMatch(raw);

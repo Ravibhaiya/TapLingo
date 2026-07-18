@@ -144,6 +144,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       await _controller.runJavaScript(JsInjection.scrollWithImageWait(y));
     } else {
       // For novels: simple retry is sufficient since text content is deterministic.
+      _restoringScroll = true;
       for (final delay in [200, 500, 1000, 1500, 2500]) {
         await Future<void>.delayed(Duration(milliseconds: delay));
         if (!mounted) return;
@@ -151,6 +152,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
           await _controller.runJavaScript(JsInjection.scrollToY(y));
         } catch (_) {}
       }
+      _restoringScroll = false;
     }
   }
 
@@ -288,6 +290,12 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     final imgW = rawW <= 0 ? 1.0 : rawW;
     final imgH = rawH <= 0 ? 1.0 : rawH;
 
+    // Use natural (intrinsic) image dimensions for accurate cropping
+    final rawNaturalW = (map['naturalWidth'] as num?)?.toDouble() ?? 0;
+    final rawNaturalH = (map['naturalHeight'] as num?)?.toDouble() ?? 0;
+    final naturalW = rawNaturalW <= 0 ? imgW : rawNaturalW;
+    final naturalH = rawNaturalH <= 0 ? imgH : rawNaturalH;
+
     if (!mounted) return;
     
     if (taps == 3) {
@@ -322,8 +330,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
         MaterialPageRoute(
           builder: (_) => MangaSelectionOverlay(
             imageBytes: full,
-            viewportWidth: imgW,
-            viewportHeight: imgH,
+            viewportWidth: naturalW,
+            viewportHeight: naturalH,
           ),
         ),
       );

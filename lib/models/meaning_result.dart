@@ -1,8 +1,8 @@
 /// Result of a Gemini meaning lookup.
 ///
-/// Double-tap (word) fills [plainMeaning], [contextualMeaning], [hinglish],
+/// Single-tap (word) fills [plainMeaning], [contextualMeaning], [hinglish],
 /// [example], and optionally [identifiedText].
-/// Triple-tap (sentence) fills [plainMeaning], [hinglish], and [identifiedText].
+/// Long-press (sentence) fills [plainMeaning], [hinglish], and [identifiedText].
 class MeaningResult {
   final int taps;
   final String? identifiedText;
@@ -24,11 +24,11 @@ class MeaningResult {
     this.error,
   });
 
-  bool get isWordMode => taps == 2;
+  bool get isWordMode => taps == 1;
   bool get isSentenceMode => taps == 3;
   bool get hasError => error != null && error!.isNotEmpty;
 
-  factory MeaningResult.error(String message, {int taps = 2}) => MeaningResult(
+  factory MeaningResult.error(String message, {int taps = 1}) => MeaningResult(
         taps: taps,
         plainMeaning: '',
         hinglish: '',
@@ -70,7 +70,7 @@ class TapPayload {
     return TapPayload(
       word: json['word'] as String?,
       sentence: json['sentence'] as String?,
-      taps: (json['taps'] as num?)?.toInt() ?? 2,
+      taps: (json['taps'] as num?)?.toInt() ?? 1,
       x: (json['x'] as num?)?.toDouble(),
       y: (json['y'] as num?)?.toDouble(),
     );
