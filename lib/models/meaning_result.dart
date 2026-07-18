@@ -6,6 +6,7 @@
 class MeaningResult {
   final int taps;
   final String? identifiedText;
+  final String? sentenceContext;
   final String plainMeaning;
   final String? contextualMeaning;
   final String hinglish;
@@ -15,6 +16,7 @@ class MeaningResult {
   const MeaningResult({
     required this.taps,
     this.identifiedText,
+    this.sentenceContext,
     required this.plainMeaning,
     this.contextualMeaning,
     required this.hinglish,
@@ -37,6 +39,7 @@ class MeaningResult {
     return MeaningResult(
       taps: taps,
       identifiedText: json['identifiedText'] as String?,
+      sentenceContext: json['sentenceContext'] as String?,
       plainMeaning: (json['plainMeaning'] as String?) ??
           (json['meaning'] as String?) ??
           '',

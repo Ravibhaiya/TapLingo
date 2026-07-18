@@ -3,12 +3,12 @@
   window.__tlgMangaInstalled = true;
 
   /* ── Gesture state ── */
-  var tapTimer = null;     // fires at ~200ms → single-tap (word)
   var holdTimer = null;    // fires at ~500ms → long-press (sentence)
   var touchStartX = 0;
   var touchStartY = 0;
   var gestureFired = false;
   var gestureActive = false; // true while a touchstart is being tracked
+  var isScrolling = false;
 
   function findImageAt(x, y) {
     var el = document.elementFromPoint(x, y);
@@ -70,9 +70,7 @@
   }
 
   function cancelGesture() {
-    clearTimeout(tapTimer);
     clearTimeout(holdTimer);
-    tapTimer = null;
     holdTimer = null;
     gestureActive = false;
   }
@@ -80,12 +78,12 @@
   function onTouchStart(e) {
     cancelGesture();
     gestureFired = false;
+    isScrolling = false;
 
     var t = e.touches ? e.touches[0] : e;
     var x = t.clientX;
     var y = t.clientY;
 
-    // Only track if there's an image under the finger
     var img = findImageAt(x, y);
     if (!img) return;
 
@@ -93,22 +91,10 @@
     touchStartY = y;
     gestureActive = true;
 
-    // Single-tap fires after 200ms if finger hasn't moved
-    tapTimer = setTimeout(function() {
-      if (!gestureActive) return;
-      gestureFired = true;
-      triggerMeaning(touchStartX, touchStartY, 1);
-      clearTimeout(holdTimer);
-      holdTimer = null;
-      gestureActive = false;
-    }, 200);
-
-    // Long-press fires after 500ms (overrides single-tap)
+    // Long-press fires after 500ms automatically if finger hasn't moved
     holdTimer = setTimeout(function() {
-      if (!gestureActive) return;
+      if (!gestureActive || isScrolling) return;
       gestureFired = true;
-      clearTimeout(tapTimer);
-      tapTimer = null;
       triggerMeaning(touchStartX, touchStartY, 3);
       gestureActive = false;
     }, 500);
@@ -120,16 +106,22 @@
     var dx = t.clientX - touchStartX;
     var dy = t.clientY - touchStartY;
     if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
+      isScrolling = true;
       cancelGesture();
     }
   }
 
   function onEnd() {
-    // Finger lifted — cancel long-press timer.
-    // If single-tap timer is still pending (< 200ms touch), let it fire
-    // so fast deliberate taps still work.
+    if (!gestureActive) return;
     clearTimeout(holdTimer);
     holdTimer = null;
+    
+    // If not scrolling and hold hasn't fired yet, it's a tap
+    if (!isScrolling && !gestureFired) {
+      triggerMeaning(touchStartX, touchStartY, 1);
+    }
+    
+    gestureActive = false;
   }
 
   document.addEventListener('touchstart', onTouchStart, { passive: true });

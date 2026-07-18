@@ -67,8 +67,8 @@ class GeminiService {
     final instruction = isWord
         ? 'Image 1 is the full manga page. Use it for surrounding dialogue and story context.\n'
             'Image 2 is a close-up crop centered on the tapped area. A red dot in Image 2 marks exactly where the reader tapped.\n'
-            'Identify the word under or closest to the red dot. Fill JSON: '
-            '{"identifiedText":"word","plainMeaning":"simple meaning",'
+            'Identify the word under or closest to the red dot. Also, extract the full sentence or dialogue box the word is found in.\n'
+            'Fill JSON: {"identifiedText":"word","sentenceContext":"full dialogue","plainMeaning":"simple meaning",'
             '"contextualMeaning":"meaning in dialogue",'
             '"hinglish":"Hindi-English meaning","example":"example sentence"}'
         : 'Image 1 is the full manga page. Use it for surrounding dialogue and story context.\n'

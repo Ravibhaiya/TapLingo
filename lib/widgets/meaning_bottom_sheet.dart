@@ -192,7 +192,9 @@ class _MeaningBottomSheetState extends ConsumerState<MeaningBottomSheet> {
       widgets.add(const SizedBox(height: 16));
     }
 
-    if (isWord && widget.sentenceContext != null && widget.sentenceContext!.isNotEmpty) {
+    final actualSentenceContext = widget.sentenceContext ?? r.sentenceContext;
+
+    if (isWord && actualSentenceContext != null && actualSentenceContext.isNotEmpty) {
       widgets.add(
         Container(
           width: double.infinity,
@@ -212,7 +214,7 @@ class _MeaningBottomSheetState extends ConsumerState<MeaningBottomSheet> {
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  widget.sentenceContext!,
+                  actualSentenceContext,
                   style: theme.textTheme.bodySmall?.copyWith(
                     fontStyle: FontStyle.italic,
                     color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
