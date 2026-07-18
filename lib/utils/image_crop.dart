@@ -60,3 +60,40 @@ Future<Uint8List?> cropAroundTap({
   cropped.dispose();
   return byteData?.buffer.asUint8List();
 }
+
+/// Crops a specific normalized rectangle from the image.
+/// [normalizedRect] coordinates are between 0.0 and 1.0.
+Future<Uint8List?> cropSelectedRect({
+  required Uint8List fullImageBytes,
+  required ui.Rect normalizedRect,
+}) async {
+  final codec = await ui.instantiateImageCodec(fullImageBytes);
+  final frame = await codec.getNextFrame();
+  final image = frame.image;
+
+  final left = (normalizedRect.left * image.width).clamp(0, image.width - 1).round();
+  final top = (normalizedRect.top * image.height).clamp(0, image.height - 1).round();
+  final right = (normalizedRect.right * image.width).clamp(0, image.width).round();
+  final bottom = (normalizedRect.bottom * image.height).clamp(0, image.height).round();
+
+  final w = math.max(1, right - left);
+  final h = math.max(1, bottom - top);
+
+  final recorder = ui.PictureRecorder();
+  final canvas = ui.Canvas(recorder);
+  final src = ui.Rect.fromLTWH(
+    left.toDouble(),
+    top.toDouble(),
+    w.toDouble(),
+    h.toDouble(),
+  );
+  final dst = ui.Rect.fromLTWH(0, 0, w.toDouble(), h.toDouble());
+  canvas.drawImageRect(image, src, dst, ui.Paint());
+
+  final picture = recorder.endRecording();
+  final cropped = await picture.toImage(w, h);
+  final byteData = await cropped.toByteData(format: ui.ImageByteFormat.png);
+  image.dispose();
+  cropped.dispose();
+  return byteData?.buffer.asUint8List();
+}

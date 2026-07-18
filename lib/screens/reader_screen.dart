@@ -10,6 +10,8 @@ import 'package:taplingo/models/meaning_result.dart';
 import 'package:taplingo/providers/providers.dart';
 import 'package:taplingo/utils/image_crop.dart';
 import 'package:taplingo/utils/js_injection.dart';
+
+import 'package:taplingo/widgets/manga_selection_overlay.dart';
 import 'package:taplingo/widgets/meaning_bottom_sheet.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
@@ -270,6 +272,70 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     final imgH = rawH <= 0 ? 1.0 : rawH;
 
     if (!mounted) return;
+    
+    if (taps == 3) {
+      if (imageSrc == null || imageSrc.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not find manga image to select.')),
+        );
+        return;
+      }
+      
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => const Center(child: CircularProgressIndicator()),
+      );
+      
+      final full = await _downloadImage(imageSrc);
+      
+      if (mounted) Navigator.of(context).pop();
+      
+      if (full == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Failed to download image')),
+          );
+        }
+        return;
+      }
+      
+      if (!mounted) return;
+      final normalizedRect = await Navigator.of(context).push<Rect>(
+        MaterialPageRoute(
+          builder: (_) => MangaSelectionOverlay(
+            imageBytes: full,
+            viewportWidth: imgW,
+            viewportHeight: imgH,
+          ),
+        ),
+      );
+      
+      if (normalizedRect == null) return;
+      
+      if (!mounted) return;
+      await showMeaningBottomSheet(
+        context: context,
+        taps: taps,
+        load: () async {
+          final crop = await cropSelectedRect(
+            fullImageBytes: full,
+            normalizedRect: normalizedRect,
+          );
+          if (crop == null) {
+            return MeaningResult.error('Could not crop the selected region.', taps: taps);
+          }
+          return ref.read(geminiServiceProvider).explainMangaTap(
+            apiKey: apiKey,
+            fullImageBytes: full,
+            cropPng: crop,
+            taps: taps,
+          );
+        },
+      );
+      return;
+    }
+
     await showMeaningBottomSheet(
       context: context,
       taps: taps,

@@ -63,7 +63,7 @@ class GeminiService {
     required Uint8List cropPng,
     required int taps,
   }) async {
-    final isWord = taps == 2;
+    final isWord = taps != 3;
     final instruction = isWord
         ? 'Image 1 is the full manga page. Use it for surrounding dialogue and story context.\n'
             'Image 2 is a close-up crop centered on the tapped area. A red dot in Image 2 marks exactly where the reader tapped.\n'
@@ -72,9 +72,9 @@ class GeminiService {
             '"contextualMeaning":"meaning in dialogue",'
             '"hinglish":"Hindi-English meaning","example":"example sentence"}'
         : 'Image 1 is the full manga page. Use it for surrounding dialogue and story context.\n'
-            'Image 2 is a close-up crop centered on the tapped area. A red dot in Image 2 marks exactly where the reader tapped.\n'
-            'Identify the full dialogue line containing the text under or closest to the red dot. Fill JSON: '
-            '{"identifiedText":"the line","plainMeaning":"simple meaning",'
+            'Image 2 is the exact cropped region selected by the user, containing a speech bubble or dialogue.\n'
+            'Translate all dialogue in this region. Fill JSON: '
+            '{"identifiedText":"the full dialogue","plainMeaning":"simple meaning",'
             '"hinglish":"Hindi-English meaning"}';
 
     try {
