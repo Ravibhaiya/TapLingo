@@ -116,6 +116,10 @@
   }
 
   function onTouchStart(e) {
+    if (e.touches && e.touches.length > 1) {
+      cancelGesture();
+      return;
+    }
     cancelGesture();
     gestureFired = false;
     isScrolling = false;
@@ -139,10 +143,14 @@
 
   function onMove(e) {
     if (!gestureSpan) return;
+    if (e.touches && e.touches.length > 1) {
+      cancelGesture();
+      return;
+    }
     var t = e.touches ? e.touches[0] : e;
     var dx = t.clientX - touchStartX;
     var dy = t.clientY - touchStartY;
-    if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
+    if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
       isScrolling = true;
       cancelGesture();
     }
@@ -184,6 +192,11 @@
     onEnd(e);
   }, { passive: true });
   document.addEventListener('touchcancel', function() { cancelGesture(); }, { passive: true });
+
+  window.addEventListener('scroll', function() {
+    isScrolling = true;
+    cancelGesture();
+  }, { passive: true });
 
   // Suppress the synthetic click so it doesn't double-fire or navigate
   document.addEventListener('click', function(e) {
