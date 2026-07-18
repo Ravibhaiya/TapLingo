@@ -129,13 +129,19 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
 
     _restoredScroll = true;
 
-    // Retry scrolling a few times as the page/images load to handle layout shifts
-    for (final delay in [200, 500, 1000, 1500, 2500]) {
-      await Future<void>.delayed(Duration(milliseconds: delay));
-      if (!mounted) return;
-      try {
-        await _controller.runJavaScript(JsInjection.scrollToY(y));
-      } catch (_) {}
+    if (_isManga) {
+      // For manga: inject JS that watches for image loads and layout shifts,
+      // retrying the scroll until the page is tall enough or a timeout is hit.
+      await _controller.runJavaScript(JsInjection.scrollWithImageWait(y));
+    } else {
+      // For novels: simple retry is sufficient since text content is deterministic.
+      for (final delay in [200, 500, 1000, 1500, 2500]) {
+        await Future<void>.delayed(Duration(milliseconds: delay));
+        if (!mounted) return;
+        try {
+          await _controller.runJavaScript(JsInjection.scrollToY(y));
+        } catch (_) {}
+      }
     }
   }
 
@@ -197,7 +203,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     try {
       final map = jsonDecode(message.message) as Map<String, dynamic>;
       final payload = TapPayload.fromJson(map);
-      if (payload.taps < 2) return;
+      if (payload.taps < 1) return;
       if (_isManga) {
         _handleMangaTap(map, payload);
       } else {
