@@ -68,41 +68,106 @@
   });
   observer.observe(document.body, { childList: true, subtree: true });
 
+  var holdTimer = null;
+  var touchStartX = 0;
+  var touchStartY = 0;
+  var longPressTriggered = false;
+
+  function triggerMeaning(span, taps) {
+    var block = span.closest('p, div, li, article, section') || span.parentElement;
+    var sentence = (block && block.innerText) ? block.innerText.trim() : span.innerText;
+    try {
+      var full = sentence;
+      var idx = full.indexOf(span.innerText);
+      if (idx >= 0) {
+        var start = Math.max(0, full.lastIndexOf('.', idx - 1) + 1);
+        var endDot = full.indexOf('.', idx + span.innerText.length);
+        var end = endDot >= 0 ? endDot + 1 : full.length;
+        var tighter = full.slice(start, end).trim();
+        if (tighter.length > 0) sentence = tighter;
+      }
+    } catch (err) {}
+
+    span.classList.add('tlg-hl');
+    if (window.TapLingoChannel) {
+      TapLingoChannel.postMessage(JSON.stringify({
+        word: span.innerText,
+        sentence: sentence,
+        taps: taps
+      }));
+    }
+    setTimeout(function() { span.classList.remove('tlg-hl'); }, 600);
+  }
+
+  function getSpan(e) {
+    return e.target.closest && e.target.closest('.tlg-word');
+  }
+
+  function startHold(e, span) {
+    longPressTriggered = false;
+    var x = e.touches ? e.touches[0].clientX : e.clientX;
+    var y = e.touches ? e.touches[0].clientY : e.clientY;
+    touchStartX = x;
+    touchStartY = y;
+    
+    clearTimeout(holdTimer);
+    holdTimer = setTimeout(function() {
+      longPressTriggered = true;
+      triggerMeaning(span, 3);
+    }, 500);
+  }
+
+  function cancelHold() {
+    clearTimeout(holdTimer);
+  }
+
+  function checkMove(e) {
+    if (!holdTimer) return;
+    var x = e.touches ? e.touches[0].clientX : e.clientX;
+    var y = e.touches ? e.touches[0].clientY : e.clientY;
+    var dx = x - touchStartX;
+    var dy = y - touchStartY;
+    if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
+      cancelHold();
+    }
+  }
+
+  document.addEventListener('touchstart', function(e) {
+    var span = getSpan(e);
+    if (span) startHold(e, span);
+  }, { passive: true });
+  
+  document.addEventListener('mousedown', function(e) {
+    if (e.touches) return;
+    var span = getSpan(e);
+    if (span) startHold(e, span);
+  }, { passive: true });
+
+  document.addEventListener('touchmove', checkMove, { passive: true });
+  document.addEventListener('mousemove', checkMove, { passive: true });
+
+  document.addEventListener('touchend', cancelHold, { passive: true });
+  document.addEventListener('mouseup', cancelHold, { passive: true });
+  document.addEventListener('touchcancel', cancelHold, { passive: true });
+
   document.addEventListener('click', function(e) {
-    var span = e.target.closest && e.target.closest('.tlg-word');
+    var span = getSpan(e);
     if (!span) return;
     e.preventDefault();
     e.stopPropagation();
 
-    var tapCount = (span._tlgTaps || 0) + 1;
-    span._tlgTaps = tapCount;
-    clearTimeout(span._tlgTimer);
-    span.classList.add('tlg-hl');
-
-    span._tlgTimer = setTimeout(function() {
-      var block = span.closest('p, div, li, article, section') || span.parentElement;
-      var sentence = (block && block.innerText) ? block.innerText.trim() : span.innerText;
-      try {
-        var full = sentence;
-        var idx = full.indexOf(span.innerText);
-        if (idx >= 0) {
-          var start = Math.max(0, full.lastIndexOf('.', idx - 1) + 1);
-          var endDot = full.indexOf('.', idx + span.innerText.length);
-          var end = endDot >= 0 ? endDot + 1 : full.length;
-          var tighter = full.slice(start, end).trim();
-          if (tighter.length > 0) sentence = tighter;
-        }
-      } catch (err) {}
-
-      if (window.TapLingoChannel) {
-        TapLingoChannel.postMessage(JSON.stringify({
-          word: span.innerText,
-          sentence: sentence,
-          taps: tapCount >= 3 ? 3 : (tapCount >= 2 ? 2 : 1)
-        }));
-      }
-      span._tlgTaps = 0;
-      setTimeout(function() { span.classList.remove('tlg-hl'); }, 600);
-    }, 300);
+    if (longPressTriggered) {
+      longPressTriggered = false;
+      return;
+    }
+    
+    triggerMeaning(span, 1);
   }, true);
+
+  document.addEventListener('contextmenu', function(e) {
+    if (getSpan(e)) {
+      e.preventDefault();
+    }
+  });
+
 })();

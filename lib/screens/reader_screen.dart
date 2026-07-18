@@ -399,12 +399,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(fontWeight: FontWeight.w600),
                             ),
-                            Text(
-                              _isManga
-                                  ? 'Double-tap word · Triple-tap line'
-                                  : 'Double-tap word · Triple-tap sentence',
-                              style: Theme.of(context).textTheme.labelSmall,
-                            ),
                           ],
                         ),
                       ),

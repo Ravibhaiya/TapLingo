@@ -42,8 +42,8 @@ class EmptyState extends StatelessWidget {
             const SizedBox(height: 8),
             Text(
               isNovel
-                  ? 'Tap + to search any free novel site and save a chapter. Double-tap words for kid-simple meanings.'
-                  : 'Tap + to find free manga online. Double-tap dialogue bubbles for instant meanings.',
+                  ? 'Tap + to search any free novel site and save a chapter. Tap words for kid-simple meanings.'
+                  : 'Tap + to find free manga online. Tap dialogue bubbles for instant meanings.',
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: theme.colorScheme.onSurface.withValues(alpha: 0.65),
               ),

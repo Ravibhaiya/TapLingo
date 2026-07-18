@@ -2,9 +2,10 @@
   if (window.__tlgMangaInstalled) return;
   window.__tlgMangaInstalled = true;
 
-  var tapCount = 0;
-  var tapTimer = null;
-  var lastX = 0, lastY = 0;
+  var holdTimer = null;
+  var touchStartX = 0;
+  var touchStartY = 0;
+  var longPressTriggered = false;
 
   function findImageAt(x, y) {
     var el = document.elementFromPoint(x, y);
@@ -34,44 +35,94 @@
     return best;
   }
 
+  function triggerMeaning(x, y, taps) {
+    var img = findImageAt(x, y);
+    if (!img) return;
+
+    var payload = {
+      word: null,
+      sentence: null,
+      taps: taps,
+      x: x,
+      y: y,
+      vw: window.innerWidth,
+      vh: window.innerHeight,
+      dpr: window.devicePixelRatio || 1
+    };
+
+    var rect = img.getBoundingClientRect();
+    payload.imageSrc = img.currentSrc || img.src || null;
+    payload.imgLeft = rect.left;
+    payload.imgTop = rect.top;
+    payload.imgWidth = rect.width;
+    payload.imgHeight = rect.height;
+    payload.naturalWidth = img.naturalWidth || rect.width;
+    payload.naturalHeight = img.naturalHeight || rect.height;
+    payload.relX = x - rect.left;
+    payload.relY = y - rect.top;
+
+    if (window.TapLingoChannel) {
+      TapLingoChannel.postMessage(JSON.stringify(payload));
+    }
+  }
+
+  function startHold(e) {
+    longPressTriggered = false;
+    var x = e.touches ? e.touches[0].clientX : e.clientX;
+    var y = e.touches ? e.touches[0].clientY : e.clientY;
+    var img = findImageAt(x, y);
+    if (!img) return;
+    
+    touchStartX = x;
+    touchStartY = y;
+    
+    clearTimeout(holdTimer);
+    holdTimer = setTimeout(function() {
+      longPressTriggered = true;
+      triggerMeaning(touchStartX, touchStartY, 3);
+    }, 500);
+  }
+
+  function cancelHold() {
+    clearTimeout(holdTimer);
+  }
+
+  function checkMove(e) {
+    if (!holdTimer) return;
+    var x = e.touches ? e.touches[0].clientX : e.clientX;
+    var y = e.touches ? e.touches[0].clientY : e.clientY;
+    var dx = x - touchStartX;
+    var dy = y - touchStartY;
+    if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
+      cancelHold();
+    }
+  }
+
+  document.addEventListener('touchstart', startHold, { passive: true });
+  document.addEventListener('mousedown', function(e) {
+    if (e.touches) return;
+    startHold(e);
+  }, { passive: true });
+
+  document.addEventListener('touchmove', checkMove, { passive: true });
+  document.addEventListener('mousemove', checkMove, { passive: true });
+
+  document.addEventListener('touchend', cancelHold, { passive: true });
+  document.addEventListener('mouseup', cancelHold, { passive: true });
+  document.addEventListener('touchcancel', cancelHold, { passive: true });
+
   document.addEventListener('click', function(e) {
-    lastX = e.clientX;
-    lastY = e.clientY;
-    tapCount++;
-    clearTimeout(tapTimer);
-    tapTimer = setTimeout(function() {
-      var taps = tapCount >= 3 ? 3 : (tapCount >= 2 ? 2 : 1);
-      tapCount = 0;
-      if (taps < 2) return;
-
-      var img = findImageAt(lastX, lastY);
-      var payload = {
-        word: null,
-        sentence: null,
-        taps: taps,
-        x: lastX,
-        y: lastY,
-        vw: window.innerWidth,
-        vh: window.innerHeight,
-        dpr: window.devicePixelRatio || 1
-      };
-
-      if (img) {
-        var rect = img.getBoundingClientRect();
-        payload.imageSrc = img.currentSrc || img.src || null;
-        payload.imgLeft = rect.left;
-        payload.imgTop = rect.top;
-        payload.imgWidth = rect.width;
-        payload.imgHeight = rect.height;
-        payload.naturalWidth = img.naturalWidth || rect.width;
-        payload.naturalHeight = img.naturalHeight || rect.height;
-        payload.relX = lastX - rect.left;
-        payload.relY = lastY - rect.top;
-      }
-
-      if (window.TapLingoChannel) {
-        TapLingoChannel.postMessage(JSON.stringify(payload));
-      }
-    }, 300);
+    if (longPressTriggered) {
+      longPressTriggered = false;
+      return;
+    }
+    triggerMeaning(e.clientX, e.clientY, 1);
   }, true);
+
+  document.addEventListener('contextmenu', function(e) {
+    if (findImageAt(e.clientX, e.clientY)) {
+      e.preventDefault();
+    }
+  });
+
 })();

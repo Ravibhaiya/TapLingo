@@ -169,12 +169,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           const SizedBox(height: 8),
           const _Tip(
             icon: Icons.touch_app,
-            title: 'Double-tap',
+            title: 'Single-tap',
             body: 'Meaning of the tapped word (or manga word under your finger).',
           ),
           const _Tip(
-            icon: Icons.touch_app,
-            title: 'Triple-tap',
+            icon: Icons.pan_tool_alt,
+            title: 'Long-press (Hold)',
             body: 'Meaning of the whole sentence / dialogue line.',
           ),
           const _Tip(
