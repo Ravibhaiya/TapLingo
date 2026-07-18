@@ -68,10 +68,13 @@
   });
   observer.observe(document.body, { childList: true, subtree: true });
 
-  var holdTimer = null;
+  /* ── Gesture state ── */
+  var tapTimer = null;     // fires at ~200ms → single-tap (word)
+  var holdTimer = null;    // fires at ~500ms → long-press (sentence)
   var touchStartX = 0;
   var touchStartY = 0;
-  var longPressTriggered = false;
+  var gestureSpan = null;  // the .tlg-word under the finger
+  var gestureFired = false; // true once either timer has fired
 
   function triggerMeaning(span, taps) {
     var block = span.closest('p, div, li, article, section') || span.parentElement;
@@ -100,74 +103,105 @@
   }
 
   function getSpan(e) {
-    return e.target.closest && e.target.closest('.tlg-word');
+    var t = e.touches ? e.touches[0] : e;
+    var el = document.elementFromPoint(t.clientX, t.clientY);
+    return el && el.closest && el.closest('.tlg-word');
   }
 
-  function startHold(e, span) {
-    longPressTriggered = false;
-    var x = e.touches ? e.touches[0].clientX : e.clientX;
-    var y = e.touches ? e.touches[0].clientY : e.clientY;
-    touchStartX = x;
-    touchStartY = y;
-    
+  function cancelGesture() {
+    clearTimeout(tapTimer);
     clearTimeout(holdTimer);
+    tapTimer = null;
+    holdTimer = null;
+    gestureSpan = null;
+  }
+
+  function onTouchStart(e) {
+    cancelGesture();
+    gestureFired = false;
+
+    var span = getSpan(e);
+    if (!span) return;
+
+    var t = e.touches ? e.touches[0] : e;
+    touchStartX = t.clientX;
+    touchStartY = t.clientY;
+    gestureSpan = span;
+
+    // Single-tap fires after 200ms if finger hasn't moved
+    tapTimer = setTimeout(function() {
+      if (!gestureSpan) return;
+      gestureFired = true;
+      triggerMeaning(gestureSpan, 1);
+      // Cancel the hold timer — single-tap already fired
+      clearTimeout(holdTimer);
+      holdTimer = null;
+      gestureSpan = null;
+    }, 200);
+
+    // Long-press fires after 500ms (overrides single-tap if it hasn't fired)
     holdTimer = setTimeout(function() {
-      longPressTriggered = true;
-      triggerMeaning(span, 3);
+      if (!gestureSpan) return;
+      gestureFired = true;
+      // Cancel single-tap if it somehow hasn't fired yet
+      clearTimeout(tapTimer);
+      tapTimer = null;
+      triggerMeaning(gestureSpan, 3);
+      gestureSpan = null;
     }, 500);
   }
 
-  function cancelHold() {
-    clearTimeout(holdTimer);
-  }
-
-  function checkMove(e) {
-    if (!holdTimer) return;
-    var x = e.touches ? e.touches[0].clientX : e.clientX;
-    var y = e.touches ? e.touches[0].clientY : e.clientY;
-    var dx = x - touchStartX;
-    var dy = y - touchStartY;
+  function onMove(e) {
+    if (!gestureSpan) return;
+    var t = e.touches ? e.touches[0] : e;
+    var dx = t.clientX - touchStartX;
+    var dy = t.clientY - touchStartY;
     if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
-      cancelHold();
+      cancelGesture();
     }
   }
 
-  document.addEventListener('touchstart', function(e) {
-    var span = getSpan(e);
-    if (span) startHold(e, span);
-  }, { passive: true });
-  
+  function onEnd() {
+    // Finger lifted — cancel the long-press timer (if single-tap already
+    // fired that's fine; if neither fired yet, cancel everything so a
+    // quick flick doesn't trigger anything)
+    clearTimeout(holdTimer);
+    holdTimer = null;
+    // If the single-tap timer is still pending (< 200ms touch), let it fire.
+    // That keeps fast deliberate taps working.
+  }
+
+  document.addEventListener('touchstart', onTouchStart, { passive: true });
   document.addEventListener('mousedown', function(e) {
     if (e.touches) return;
-    var span = getSpan(e);
-    if (span) startHold(e, span);
+    onTouchStart(e);
   }, { passive: true });
 
-  document.addEventListener('touchmove', checkMove, { passive: true });
-  document.addEventListener('mousemove', checkMove, { passive: true });
+  document.addEventListener('touchmove', onMove, { passive: true });
+  document.addEventListener('mousemove', onMove, { passive: true });
 
-  document.addEventListener('touchend', cancelHold, { passive: true });
-  document.addEventListener('mouseup', cancelHold, { passive: true });
-  document.addEventListener('touchcancel', cancelHold, { passive: true });
+  document.addEventListener('touchend', onEnd, { passive: true });
+  document.addEventListener('mouseup', onEnd, { passive: true });
+  document.addEventListener('touchcancel', function() { cancelGesture(); }, { passive: true });
 
+  // Suppress the synthetic click so it doesn't double-fire or navigate
   document.addEventListener('click', function(e) {
-    var span = getSpan(e);
-    if (!span) return;
-    e.preventDefault();
-    e.stopPropagation();
-
-    if (longPressTriggered) {
-      longPressTriggered = false;
+    if (gestureFired) {
+      gestureFired = false;
+      e.preventDefault();
+      e.stopPropagation();
       return;
     }
-    
-    triggerMeaning(span, 1);
+    var span = e.target.closest && e.target.closest('.tlg-word');
+    if (span) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
   }, true);
 
   document.addEventListener('contextmenu', function(e) {
-    if (getSpan(e)) {
-      e.preventDefault();
-    }
+    var span = e.target.closest && e.target.closest('.tlg-word');
+    if (span) e.preventDefault();
   });
 
 })();
