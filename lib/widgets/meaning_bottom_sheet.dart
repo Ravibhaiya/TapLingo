@@ -180,7 +180,7 @@ class _MeaningBottomSheetState extends ConsumerState<MeaningBottomSheet> {
             color: theme.colorScheme.primary.withValues(alpha: 0.12),
             borderRadius: BorderRadius.circular(12),
           ),
-          child: Text(
+          child: SelectableText(
             r.identifiedText!,
             style: theme.textTheme.titleLarge?.copyWith(
               fontWeight: FontWeight.w700,
@@ -213,7 +213,7 @@ class _MeaningBottomSheetState extends ConsumerState<MeaningBottomSheet> {
                   color: theme.colorScheme.onSurface.withValues(alpha: 0.45)),
               const SizedBox(width: 8),
               Expanded(
-                child: Text(
+                child: SelectableText(
                   actualSentenceContext,
                   style: theme.textTheme.bodySmall?.copyWith(
                     fontStyle: FontStyle.italic,
@@ -323,7 +323,13 @@ class _Section extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 6),
-        Text(body, style: theme.textTheme.bodyLarge),
+        SelectableText(
+          body,
+          style: theme.textTheme.bodyMedium?.copyWith(
+            height: 1.5,
+            color: theme.colorScheme.onSurface,
+          ),
+        ),
       ],
     );
   }

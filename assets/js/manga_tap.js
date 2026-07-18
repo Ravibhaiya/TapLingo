@@ -124,17 +124,28 @@
     gestureActive = false;
   }
 
-  document.addEventListener('touchstart', onTouchStart, { passive: true });
+  var isTouch = false;
+
+  document.addEventListener('touchstart', function(e) {
+    isTouch = true;
+    onTouchStart(e);
+  }, { passive: true });
   document.addEventListener('mousedown', function(e) {
-    if (e.touches) return;
+    if (isTouch) return;
     onTouchStart(e);
   }, { passive: true });
 
   document.addEventListener('touchmove', onMove, { passive: true });
-  document.addEventListener('mousemove', onMove, { passive: true });
+  document.addEventListener('mousemove', function(e) {
+    if (isTouch) return;
+    onMove(e);
+  }, { passive: true });
 
   document.addEventListener('touchend', onEnd, { passive: true });
-  document.addEventListener('mouseup', onEnd, { passive: true });
+  document.addEventListener('mouseup', function(e) {
+    if (isTouch) return;
+    onEnd(e);
+  }, { passive: true });
   document.addEventListener('touchcancel', function() { cancelGesture(); }, { passive: true });
 
   // Suppress the synthetic click so it doesn't navigate or double-fire
