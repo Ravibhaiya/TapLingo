@@ -5,7 +5,9 @@
   function getScrollContainer() {
     const defaultContainer = document.scrollingElement || document.documentElement || document.body;
     const candidates = [];
-    const elList = document.querySelectorAll('body, main, div, section, article, [class*="read"], [class*="chapter"], [class*="manga"], [id*="read"], [id*="chapter"]');
+    
+    // High probability selectors first (without bare tags like div, section, article)
+    const elList = document.querySelectorAll('main, [class*="read"], [class*="chapter"], [class*="manga"], [id*="read"], [id*="chapter"]');
     elList.forEach(el => {
       if (el === document.documentElement || el === document.body) return;
       const style = window.getComputedStyle(el);
@@ -15,9 +17,30 @@
       if (el.scrollHeight <= el.clientHeight + 50) return;
       candidates.push(el);
     });
-    if (!candidates.length) return defaultContainer;
-    candidates.sort((a, b) => (b.scrollHeight - b.clientHeight) - (a.scrollHeight - a.clientHeight));
-    return candidates[0];
+    
+    if (candidates.length > 0) {
+      candidates.sort((a, b) => (b.scrollHeight - b.clientHeight) - (a.scrollHeight - a.clientHeight));
+      return candidates[0];
+    }
+    
+    // Fallback to div, section, article only if the scoped selectors didn't match
+    const fallbacks = document.querySelectorAll('div, section, article');
+    fallbacks.forEach(el => {
+      if (el === document.documentElement || el === document.body) return;
+      const style = window.getComputedStyle(el);
+      if (style.overflowY !== 'auto' && style.overflowY !== 'scroll') return;
+      const r = el.getBoundingClientRect();
+      if (r.height < window.innerHeight * 0.6) return;
+      if (el.scrollHeight <= el.clientHeight + 50) return;
+      candidates.push(el);
+    });
+    
+    if (candidates.length > 0) {
+      candidates.sort((a, b) => (b.scrollHeight - b.clientHeight) - (a.scrollHeight - a.clientHeight));
+      return candidates[0];
+    }
+    
+    return defaultContainer;
   }
 
   window.__tlgScrollResolver = {

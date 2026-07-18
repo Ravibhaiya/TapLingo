@@ -31,6 +31,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   var _loading = true;
   var _chromeVisible = true;
   Timer? _progressTimer;
+  Timer? _restorationFallbackTimer;
   bool _restoredScroll = false;
   bool _restoringScroll = false;
 
@@ -87,6 +88,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   @override
   void dispose() {
     _progressTimer?.cancel();
+    _restorationFallbackTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     _captureScrollPosition();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
@@ -134,8 +136,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
 
     if (_isManga) {
       _restoringScroll = true;
+      _restorationFallbackTimer?.cancel();
       // Start a safety fallback timer (16 seconds) to clear the flag in case the JS message is lost
-      Timer(const Duration(seconds: 16), () {
+      _restorationFallbackTimer = Timer(const Duration(seconds: 16), () {
         _restoringScroll = false;
       });
       await _controller.runJavaScript(JsInjection.scrollWithImageWait(y));
@@ -211,6 +214,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       
       // Handle scroll restoration message from injected JS
       if (map['type'] == 'scrollRestoration') {
+        _restorationFallbackTimer?.cancel();
         _restoringScroll = false;
         final status = map['status'] as String?;
         debugPrint('[ScrollRestoration] Completed with status: $status');
