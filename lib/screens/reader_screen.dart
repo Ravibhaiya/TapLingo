@@ -32,6 +32,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   var _chromeVisible = true;
   Timer? _progressTimer;
   bool _restoredScroll = false;
+  bool _restoringScroll = false;
 
   bool get _isManga => widget.item.type == LibraryType.manga;
 
@@ -132,8 +133,11 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     _restoredScroll = true;
 
     if (_isManga) {
-      // For manga: inject JS that watches for image loads and layout shifts,
-      // retrying the scroll until the page is tall enough or a timeout is hit.
+      _restoringScroll = true;
+      // Start a safety fallback timer (16 seconds) to clear the flag in case the JS message is lost
+      Timer(const Duration(seconds: 16), () {
+        _restoringScroll = false;
+      });
       await _controller.runJavaScript(JsInjection.scrollWithImageWait(y));
     } else {
       // For novels: simple retry is sufficient since text content is deterministic.
@@ -162,7 +166,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   }
 
   Future<void> _captureScrollPosition() async {
-    if (!mounted) return;
+    if (!mounted || _restoringScroll) return;
     try {
       final result = await _controller
           .runJavaScriptReturningResult(JsInjection.getScrollY)
@@ -207,6 +211,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       
       // Handle scroll restoration message from injected JS
       if (map['type'] == 'scrollRestoration') {
+        _restoringScroll = false;
         final status = map['status'] as String?;
         debugPrint('[ScrollRestoration] Completed with status: $status');
         return;
