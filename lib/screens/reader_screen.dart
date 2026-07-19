@@ -63,6 +63,20 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
           },
           onPageFinished: (url) async {
             await _injectModeScripts();
+            
+            // Wait for document.readyState to be "complete" so that the website's onload event triggers
+            for (int i = 0; i < 50; i++) {
+              if (!mounted) return;
+              try {
+                final state = await _controller.runJavaScriptReturningResult('document.readyState');
+                final stateStr = state.toString().replaceAll('"', '').replaceAll("'", "").trim();
+                if (stateStr == 'complete') {
+                  break;
+                }
+              } catch (_) {}
+              await Future<void>.delayed(const Duration(milliseconds: 100));
+            }
+
             await _maybeRestoreScroll(url);
             if (mounted) setState(() => _loading = false);
             _persistUrl(url);
@@ -132,10 +146,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       return;
     }
 
+    _restoringScroll = true;
     _restoredScroll = true;
 
     if (_isManga) {
-      _restoringScroll = true;
       _restorationFallbackTimer?.cancel();
       // Start a safety fallback timer (16 seconds) to clear the flag in case the JS message is lost
       _restorationFallbackTimer = Timer(const Duration(seconds: 16), () {
@@ -410,7 +424,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       final response = await http.get(
         uri,
         headers: {
-          'Referer': ?pageUrl,
+          'Referer': pageUrl ?? '',
           'User-Agent':
               'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
         },

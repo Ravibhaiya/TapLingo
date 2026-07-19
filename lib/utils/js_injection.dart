@@ -32,10 +32,10 @@ class JsInjection {
   static String scrollWithImageWait(double y) => '''
 (function() {
   const TARGET = $y;
-  const maxTime = 15000;
+  const maxTime = 25000;
   const start = Date.now();
   const STEP_TIMEOUT = 2500;
-  const STALL_LIMIT = 2;
+  const STALL_LIMIT = 4;
 
   const resolver = window.__tlgScrollResolver;
   const container = resolver ? resolver.getContainer() : (document.scrollingElement || document.documentElement || document.body);
@@ -83,12 +83,68 @@ class JsInjection {
     }
   }
 
+  function forceLoadAllImages() {
+    // 1. Convert native lazy images to eager
+    document.querySelectorAll('img[loading="lazy"]').forEach(img => {
+      img.loading = 'eager';
+      img.removeAttribute('loading');
+    });
+
+    // 2. Resolve common lazy load data-attributes
+    const lazyAttributes = [
+      'data-src', 'data-lazy-src', 'data-original', 'bv-data-src', 
+      'data-src-retina', 'lazy-src', 'data-srcset', 'bv-data-srcset'
+    ];
+
+    document.querySelectorAll('img, source').forEach(el => {
+      let srcFound = false;
+      let srcsetFound = false;
+
+      // Check all attributes on this element
+      for (let i = 0; i < el.attributes.length; i++) {
+        const attr = el.attributes[i];
+        const name = attr.name.toLowerCase();
+        const value = attr.value;
+        
+        if (!value) continue;
+
+        if (name === 'data-srcset' || name === 'bv-data-srcset' || name.includes('srcset')) {
+          if (name !== 'srcset') {
+            el.setAttribute('srcset', value);
+            srcsetFound = true;
+          }
+        }
+        
+        if (name === 'data-src' || name === 'bv-data-src' || name === 'data-lazy-src' || name === 'data-original' || name.includes('src')) {
+          if (name !== 'src' && name !== 'srcset') {
+            el.setAttribute('src', value);
+            srcFound = true;
+          }
+        }
+      }
+
+      // If the image is currently showing a tiny SVG placeholder, but has a src it hasn't loaded yet
+      if (el.tagName === 'IMG' && el.src && el.src.startsWith('data:image/')) {
+        const realSrc = el.getAttribute('data-src') || el.getAttribute('bv-data-src') || el.getAttribute('data-lazy-src');
+        if (realSrc) {
+          el.src = realSrc;
+        }
+      }
+    });
+
+    // 3. Trigger generic lazyload events
+    window.dispatchEvent(new Event('scroll'));
+    window.dispatchEvent(new Event('resize'));
+  }
+
   let status = 'timeout';
   let stalls = 0;
 
   async function run() {
     try {
       disableAnchoring();
+      // Force load lazy elements immediately to speed up restoration
+      forceLoadAllImages();
 
       while (Date.now() - start < maxTime) {
         const currentHeight = getScrollHeight();
