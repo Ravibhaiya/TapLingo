@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
 import 'package:taplingo/models/meaning_result.dart';
 
@@ -8,14 +9,61 @@ import 'package:taplingo/models/meaning_result.dart';
 class GeminiService {
   static const modelName = 'gemini-3.1-flash-lite';
 
-  GenerativeModel _model(String apiKey, {int? maxTokens}) => GenerativeModel(
+  @visibleForTesting
+  MeaningResult parseExposed(String? text, {required int taps}) => _parse(text, taps: taps);
+
+  static final _novelWordSchema = Schema.object(
+    properties: {
+      'identifiedText': Schema.string(),
+      'plainMeaning': Schema.string(),
+      'contextualMeaning': Schema.string(),
+      'hinglish': Schema.string(),
+      'example': Schema.string(),
+    },
+    requiredProperties: [
+      'identifiedText',
+      'plainMeaning',
+      'contextualMeaning',
+      'hinglish',
+      'example',
+    ],
+  );
+
+  static final _mangaWordSchema = Schema.object(
+    properties: {
+      'identifiedText': Schema.string(),
+      'plainMeaning': Schema.string(),
+      'contextualMeaning': Schema.string(),
+      'sentenceContext': Schema.string(),
+      'hinglish': Schema.string(),
+      'example': Schema.string(),
+    },
+    requiredProperties: [
+      'identifiedText',
+      'plainMeaning',
+      'contextualMeaning',
+      'sentenceContext',
+      'hinglish',
+      'example',
+    ],
+  );
+
+  static final _sentenceSchema = Schema.object(
+    properties: {
+      'identifiedText': Schema.string(),
+      'plainMeaning': Schema.string(),
+      'hinglish': Schema.string(),
+    },
+    requiredProperties: [
+      'identifiedText',
+      'plainMeaning',
+      'hinglish',
+    ],
+  );
+
+  GenerativeModel _model(String apiKey) => GenerativeModel(
         model: modelName,
         apiKey: apiKey,
-        generationConfig: GenerationConfig(
-          temperature: 0.0,
-          maxOutputTokens: maxTokens ?? 800,
-          responseMimeType: 'application/json',
-        ),
       );
 
   Future<MeaningResult> explainWord({
@@ -24,14 +72,25 @@ class GeminiService {
     required String sentence,
   }) async {
     final prompt =
-        'Word: "$word" in "$sentence". Fill JSON: '
-        '{"identifiedText":"$word","plainMeaning":"simple meaning",'
-        '"contextualMeaning":"meaning in this sentence",'
-        '"hinglish":"Hindi-English meaning","example":"example sentence"}';
+        'Word: "$word" in "$sentence".\n'
+        'Provide a JSON response. CRITICAL constraints:\n'
+        '- identifiedText: the tapped word ("$word")\n'
+        '- plainMeaning: a brief dictionary definition (maximum 15 words)\n'
+        '- contextualMeaning: a brief explanation of what the word means in this specific sentence (maximum 15 words)\n'
+        '- hinglish: a Hindi-English translation/explanation\n'
+        '- example: a short example sentence using the word\n'
+        'CRITICAL: Keep plainMeaning and contextualMeaning extremely short and concise. Do not repeat sentences.';
 
     try {
-      final response = await _model(apiKey)
-          .generateContent([Content.text(prompt)]);
+      final response = await _model(apiKey).generateContent(
+        [Content.text(prompt)],
+        generationConfig: GenerationConfig(
+          temperature: 0.2,
+          maxOutputTokens: 800,
+          responseMimeType: 'application/json',
+          responseSchema: _novelWordSchema,
+        ),
+      );
       return _parse(response.text, taps: 1);
     } catch (e) {
       return MeaningResult.error(_friendlyError(e), taps: 1);
@@ -43,13 +102,23 @@ class GeminiService {
     required String sentence,
   }) async {
     final prompt =
-        'Sentence: "$sentence". Fill JSON: '
-        '{"identifiedText":"the sentence","plainMeaning":"simple meaning",'
-        '"hinglish":"Hindi-English meaning"}';
+        'Sentence: "$sentence".\n'
+        'Provide a JSON response. CRITICAL constraints:\n'
+        '- identifiedText: the sentence ("$sentence")\n'
+        '- plainMeaning: a simple translation/explanation (maximum 20 words)\n'
+        '- hinglish: a Hindi-English translation/explanation\n'
+        'CRITICAL: Keep plainMeaning extremely short and concise. Do not repeat sentences.';
 
     try {
-      final response = await _model(apiKey)
-          .generateContent([Content.text(prompt)]);
+      final response = await _model(apiKey).generateContent(
+        [Content.text(prompt)],
+        generationConfig: GenerationConfig(
+          temperature: 0.2,
+          maxOutputTokens: 800,
+          responseMimeType: 'application/json',
+          responseSchema: _sentenceSchema,
+        ),
+      );
       return _parse(response.text, taps: 3);
     } catch (e) {
       return MeaningResult.error(_friendlyError(e), taps: 3);
@@ -68,25 +137,41 @@ class GeminiService {
         ? 'Image 1 is the full manga page. Use it for surrounding dialogue and story context.\n'
             'Image 2 is a close-up crop centered on the tapped area. A red dot in Image 2 marks exactly where the reader tapped.\n'
             'Identify the word under or closest to the red dot. Also, extract the full sentence or dialogue box the word is found in.\n'
-            'Fill JSON: {"identifiedText":"word","sentenceContext":"full dialogue","plainMeaning":"simple meaning",'
-            '"contextualMeaning":"meaning in dialogue",'
-            '"hinglish":"Hindi-English meaning","example":"example sentence"}'
+            'Provide a JSON response. CRITICAL constraints:\n'
+            '- identifiedText: the word under the tap\n'
+            '- sentenceContext: the full dialogue/sentence containing the word\n'
+            '- plainMeaning: a brief dictionary definition (maximum 15 words)\n'
+            '- contextualMeaning: a brief explanation of what the word means in this specific dialogue (maximum 15 words)\n'
+            '- hinglish: a Hindi-English translation/explanation\n'
+            '- example: a short example sentence using the word\n'
+            'CRITICAL: Keep plainMeaning and contextualMeaning extremely short and concise. Do not repeat sentences.'
         : 'Image 1 is the full manga page. Use it for surrounding dialogue and story context.\n'
             'Image 2 is the exact cropped region selected by the user, containing a speech bubble or dialogue.\n'
-            'Translate all dialogue in this region. Fill JSON: '
-            '{"identifiedText":"the full dialogue","plainMeaning":"simple meaning",'
-            '"hinglish":"Hindi-English meaning"}';
+            'Translate all dialogue in this region.\n'
+            'Provide a JSON response. CRITICAL constraints:\n'
+            '- identifiedText: the full dialogue/sentence\n'
+            '- plainMeaning: a simple translation/explanation (maximum 20 words)\n'
+            '- hinglish: a Hindi-English translation/explanation\n'
+            'CRITICAL: Keep plainMeaning extremely short and concise. Do not repeat sentences.';
 
     try {
-      final response = await _model(apiKey).generateContent([
-        Content.multi([
-          TextPart(instruction),
-          TextPart('Image 1 (Full page):'),
-          DataPart(_mimeOf(fullImageBytes), fullImageBytes),
-          TextPart('Image 2 (Crop with red dot at tap):'),
-          DataPart('image/png', cropPng),
-        ]),
-      ]);
+      final response = await _model(apiKey).generateContent(
+        [
+          Content.multi([
+            TextPart(instruction),
+            TextPart('Image 1 (Full page):'),
+            DataPart(_mimeOf(fullImageBytes), fullImageBytes),
+            TextPart('Image 2 (Crop with red dot at tap):'),
+            DataPart('image/png', cropPng),
+          ]),
+        ],
+        generationConfig: GenerationConfig(
+          temperature: 0.2,
+          maxOutputTokens: 800,
+          responseMimeType: 'application/json',
+          responseSchema: isWord ? _mangaWordSchema : _sentenceSchema,
+        ),
+      );
       return _parse(response.text, taps: taps);
     } catch (e) {
       return MeaningResult.error(_friendlyError(e), taps: taps);
@@ -123,23 +208,18 @@ class GeminiService {
     }
     try {
       var raw = text.trim();
-      // Strip markdown fences if the model wraps JSON
-      if (raw.startsWith('```')) {
-        raw = raw.replaceFirst(RegExp(r'^```(?:json)?\s*'), '');
-        raw = raw.replaceFirst(RegExp(r'\s*```$'), '');
+      
+      final start = raw.indexOf('{');
+      final end = raw.lastIndexOf('}');
+      if (start != -1 && end != -1 && end > start) {
+        raw = raw.substring(start, end + 1);
       }
-      // Strip any residual thinking tags (e.g. <|channel|>thought\n<channel|>)
-      raw = raw.replaceAll(RegExp(r'<\|?channel\|?>.*?<\|?channel\|?>', dotAll: true), '');
-      raw = raw.replaceAll(RegExp(r'<think>.*?</think>', dotAll: true), '');
-      raw = raw.trim();
-      // Try to extract JSON if surrounded by other text
-      final jsonMatch = RegExp(r'\{[^{}]*\}', dotAll: true).firstMatch(raw);
-      if (jsonMatch != null) {
-        raw = jsonMatch.group(0)!;
-      }
+
       final map = jsonDecode(raw) as Map<String, dynamic>;
       return MeaningResult.fromJson(map, taps);
-    } catch (_) {
+    } catch (e) {
+      print('[GeminiService] Failed to parse JSON. Raw response: "$text"');
+      print('[GeminiService] Parsing error: $e');
       // Fallback: treat whole text as plain meaning
       return MeaningResult(
         taps: taps,

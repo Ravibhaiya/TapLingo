@@ -9,19 +9,22 @@ Read novels & manga from any free website. Tap any word for an instant simple + 
 
 - **Novel / Manga tabs** — one library, switch with a single tap
 - **Add from the web** — search Google in-app, browse freely, save any chapter/page
-- **Novel tap-to-define** — JS injection defeats `user-select` blocks; double-tap a word, triple-tap for the whole sentence
-- **Manga vision define** — double/triple-tap on a panel; screenshot + crop + coordinates go to Gemini Vision
-- **Kid-simple explanations** + **Hinglish** translations
-- **Read aloud** via device TTS
-- **Resume where you left off** (URL + scroll for novels, URL for manga)
-- **Secure API key storage** (`flutter_secure_storage`) — never commit keys
+- **Novel tap-to-define** — JS injection defeats `user-select` blocks; single-tap a word, long-press for the whole sentence
+- **Manga vision define** — single-tap/long-press on a panel; screenshot + crop + coordinates go to Gemini Vision
 
-### Tap cheat-sheet
+### Meaning Display
 
-| Gesture | What you get |
-|--------|----------------|
-| **Double-tap** | Meaning of the **word** (+ contextual use, Hinglish, example) |
-| **Triple-tap** | Meaning of the whole **sentence** / dialogue line (+ Hinglish) |
+A sleek, animated bottom sheet parses Gemini’s JSON response into:
+1. **Identified Word**
+2. **Contextual Meaning** (what it means in that exact sentence)
+3. **Plain Meaning**
+4. **Hinglish** (Hindi-English colloquial explanation)
+5. **Example Sentence**
+
+| Action | Result |
+|--------|--------|
+| **Single-tap** | Meaning of a specific **word** (+ Hinglish + Example) |
+| **Long-press** | Meaning of the whole **sentence** / dialogue line (+ Hinglish) |
 
 ## Setup
 

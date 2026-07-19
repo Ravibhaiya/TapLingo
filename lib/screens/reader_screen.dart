@@ -13,7 +13,8 @@ import 'package:taplingo/utils/js_injection.dart';
 
 import 'package:taplingo/widgets/manga_selection_overlay.dart';
 import 'package:taplingo/widgets/meaning_bottom_sheet.dart';
-import 'package:shimmer/shimmer.dart';
+import 'package:taplingo/widgets/reader_app_bar.dart';
+import 'package:taplingo/widgets/reader_skeleton.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
 
@@ -31,10 +32,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   late final WebViewController _controller;
   var _loading = true;
   var _chromeVisible = true;
-  Timer? _progressTimer;
   Timer? _restorationFallbackTimer;
   bool _restoredScroll = false;
   bool _restoringScroll = false;
+  bool _isBottomSheetOpen = false;
 
   bool get _isManga => widget.item.type == LibraryType.manga;
 
@@ -94,15 +95,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       AndroidWebViewController.enableDebugging(false);
       platform.setMediaPlaybackRequiresUserGesture(false);
     }
-
-    _progressTimer = Timer.periodic(const Duration(seconds: 8), (_) {
-      _captureScrollPosition();
-    });
   }
 
   @override
   void dispose() {
-    _progressTimer?.cancel();
     _restorationFallbackTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     _captureScrollPosition();
@@ -119,9 +115,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   }
 
   Future<void> _injectModeScripts() async {
-    final js = _isManga
-        ? await JsInjection.mangaTap()
-        : await JsInjection.novelTap();
+    final js = await JsInjection.readerTap();
     await _controller.runJavaScript(js);
   }
 
@@ -153,8 +147,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
 
     if (_isManga) {
       _restorationFallbackTimer?.cancel();
-      // Start a safety fallback timer (16 seconds) to clear the flag in case the JS message is lost
-      _restorationFallbackTimer = Timer(const Duration(seconds: 16), () {
+      // Start a safety fallback timer (30 seconds) to clear the flag in case the JS message is lost
+      _restorationFallbackTimer = Timer(const Duration(seconds: 30), () {
         _restoringScroll = false;
       });
       await _controller.runJavaScript(JsInjection.scrollWithImageWait(y));
@@ -243,12 +237,30 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
         return;
       }
 
+      // Handle real-time scroll updates from JS
+      if (map['type'] == 'scrollPosition') {
+        if (!_restoringScroll) {
+          final y = (map['y'] as num?)?.toDouble() ?? 0.0;
+          final url = map['url'] as String?;
+          if (url != null && url.isNotEmpty) {
+            ref.read(libraryProvider.notifier).updateProgress(
+                  id: widget.item.id,
+                  lastReadUrl: url,
+                  lastReadPosition: y,
+                );
+          }
+        }
+        return;
+      }
+
       final payload = TapPayload.fromJson(map);
       if (payload.taps < 1) return;
-      if (_isManga) {
-        _handleMangaTap(map, payload);
+      
+      final hasImage = map.containsKey('imageSrc') && map['imageSrc'] != null;
+      if (hasImage) {
+        _handleImageTap(map, payload);
       } else {
-        _handleNovelTap(payload);
+        _handleTextTap(payload);
       }
     } catch (e) {
       if (mounted) {
@@ -259,7 +271,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     }
   }
 
-  Future<void> _handleNovelTap(TapPayload payload) async {
+  Future<void> _handleTextTap(TapPayload payload) async {
+    if (_isBottomSheetOpen) return;
     final apiKey = ref.read(geminiApiKeyProvider).value;
     if (apiKey == null || apiKey.isEmpty) {
       _promptForApiKey();
@@ -288,12 +301,14 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
         );
       },
     );
+    if (mounted) _isBottomSheetOpen = false;
   }
 
-  Future<void> _handleMangaTap(
+  Future<void> _handleImageTap(
     Map<String, dynamic> map,
     TapPayload payload,
   ) async {
+    if (_isBottomSheetOpen) return;
     final apiKey = ref.read(geminiApiKeyProvider).value;
     if (apiKey == null || apiKey.isEmpty) {
       _promptForApiKey();
@@ -321,20 +336,66 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     if (taps == 3) {
       if (imageSrc == null || imageSrc.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not find manga image to select.')),
+          const SnackBar(content: Text('Could not find image to select.')),
         );
         return;
       }
       
+      bool dialogOpen = true;
       showDialog(
         context: context,
         barrierDismissible: false,
-        builder: (ctx) => const Center(child: CircularProgressIndicator()),
-      );
+        builder: (ctx) => Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          child: Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SizedBox(
+                  height: 40,
+                  width: 40,
+                  child: CircularProgressIndicator(strokeWidth: 3),
+                ),
+                const SizedBox(height: 24),
+                const Text(
+                  'Downloading high-res page...',
+                  style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'This may take a moment on slower networks.',
+                  style: TextStyle(fontSize: 13, color: Colors.grey),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 24),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton(
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    onPressed: () {
+                      dialogOpen = false;
+                      Navigator.pop(ctx);
+                    },
+                    child: const Text('Cancel'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ).then((_) => dialogOpen = false);
       
       final full = await _downloadImage(imageSrc);
       
-      if (mounted) Navigator.of(context).pop();
+      if (mounted && dialogOpen) Navigator.of(context).pop();
+      if (!dialogOpen) return;
       
       if (full == null) {
         if (mounted) {
@@ -359,6 +420,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       if (normalizedRect == null) return;
       
       if (!mounted) return;
+      _isBottomSheetOpen = true;
       await showMeaningBottomSheet(
         context: context,
         taps: taps,
@@ -378,16 +440,18 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
           );
         },
       );
+      if (mounted) _isBottomSheetOpen = false;
       return;
     }
 
+    _isBottomSheetOpen = true;
     await showMeaningBottomSheet(
       context: context,
       taps: taps,
       load: () async {
         if (imageSrc == null || imageSrc.isEmpty) {
           return MeaningResult.error(
-            'Could not find a manga image under your tap. Try tapping on the panel art.',
+            'Could not find an image under your tap. Try tapping on the image.',
             taps: taps,
           );
         }
@@ -421,6 +485,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
             );
       },
     );
+    if (mounted) _isBottomSheetOpen = false;
   }
 
   Future<Uint8List?> _downloadImage(String url) async {
@@ -434,7 +499,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
           'User-Agent':
               'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
         },
-      );
+      ).timeout(const Duration(seconds: 15));
       if (response.statusCode >= 200 && response.statusCode < 300) {
         return response.bodyBytes;
       }
@@ -493,79 +558,30 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
                       Positioned.fill(
                         child: Container(
                           color: Theme.of(context).scaffoldBackgroundColor,
-                          child: _buildSkeleton(context),
+                          child: ReaderSkeleton(isManga: _isManga),
                         ),
                       ),
                   ],
                 ),
               ),
             ),
-            AnimatedSlide(
-              duration: const Duration(milliseconds: 250),
-              offset: _chromeVisible ? Offset.zero : const Offset(0, -1.2),
-              child: SafeArea(
-                child: Material(
-                  color: Theme.of(context)
-                      .colorScheme
-                      .surface
-                      .withValues(alpha: 0.92),
-                  child: Row(
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.arrow_back),
-                        onPressed: () {
-                          Navigator.maybePop(context);
-                        },
-                      ),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              widget.item.name,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(fontWeight: FontWeight.w600),
-                            ),
-                          ],
-                        ),
-                      ),
-                      IconButton(
-                        tooltip: 'Back in page',
-                        onPressed: () async {
-                          if (await _controller.canGoBack()) {
-                            await _controller.goBack();
-                          } else if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('No previous page history.'),
-                                duration: Duration(seconds: 2),
-                              ),
-                            );
-                          }
-                        },
-                        icon: const Icon(Icons.arrow_back_ios_new, size: 16),
-                      ),
-                      IconButton(
-                        tooltip: 'Reload',
-                        onPressed: () => _controller.reload(),
-                        icon: const Icon(Icons.refresh),
-                      ),
-                      IconButton(
-                        tooltip: _chromeVisible ? 'Hide bar' : 'Show bar',
-                        onPressed: () =>
-                            setState(() => _chromeVisible = !_chromeVisible),
-                        icon: Icon(
-                          _chromeVisible
-                              ? Icons.fullscreen
-                              : Icons.fullscreen_exit,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
+            ReaderAppBar(
+              title: widget.item.name,
+              chromeVisible: _chromeVisible,
+              onToggleChrome: () => setState(() => _chromeVisible = !_chromeVisible),
+              onReload: () => _controller.reload(),
+              onGoBack: () async {
+                if (await _controller.canGoBack()) {
+                  await _controller.goBack();
+                } else if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('No previous page history.'),
+                      duration: Duration(seconds: 2),
+                    ),
+                  );
+                }
+              },
             ),
             if (_loading || _restoringScroll)
               const Positioned(
@@ -585,66 +601,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
               ),
           ],
         ),
-      ),
-    );
-  }
-
-  Widget _buildSkeleton(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final baseColor = isDark ? Colors.grey[800]! : Colors.grey[300]!;
-    final highlightColor = isDark ? Colors.grey[700]! : Colors.grey[100]!;
-
-    return Shimmer.fromColors(
-      baseColor: baseColor,
-      highlightColor: highlightColor,
-      child: ListView.builder(
-        physics: const NeverScrollableScrollPhysics(),
-        padding: EdgeInsets.only(
-          top: MediaQuery.paddingOf(context).top + kToolbarHeight + 16,
-          left: 16,
-          right: 16,
-        ),
-        itemCount: 5,
-        itemBuilder: (context, index) {
-          if (_isManga) {
-            // Skeleton for manga: large rectangular blocks mimicking image panels
-            return Container(
-              margin: const EdgeInsets.only(bottom: 16),
-              height: 300,
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-              ),
-            );
-          } else {
-            // Skeleton for novel: paragraph text lines
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    height: 16,
-                    width: double.infinity,
-                    color: Colors.white,
-                    margin: const EdgeInsets.only(bottom: 8),
-                  ),
-                  Container(
-                    height: 16,
-                    width: double.infinity,
-                    color: Colors.white,
-                    margin: const EdgeInsets.only(bottom: 8),
-                  ),
-                  Container(
-                    height: 16,
-                    width: MediaQuery.of(context).size.width * 0.7,
-                    color: Colors.white,
-                  ),
-                ],
-              ),
-            );
-          }
-        },
       ),
     );
   }

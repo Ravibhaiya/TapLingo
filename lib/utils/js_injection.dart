@@ -2,19 +2,14 @@ import 'package:flutter/services.dart';
 
 /// Loads novel/manga JS assets and provides scroll helpers.
 class JsInjection {
-  static String? _novel;
-  static String? _manga;
+  static String? _reader;
 
-  static Future<String> novelTap() async {
-    return _novel ??= await rootBundle.loadString('assets/js/novel_tap.js');
-  }
-
-  static Future<String> mangaTap() async {
-    return _manga ??= await rootBundle.loadString('assets/js/manga_tap.js');
+  static Future<String> readerTap() async {
+    return _reader ??= await rootBundle.loadString('assets/js/reader_tap.js');
   }
 
   static const getScrollY =
-      '((window.__tlgScrollResolver && window.__tlgScrollResolver.getY) ? window.__tlgScrollResolver.getY() : (window.scrollY || window.pageYOffset || 0));';
+      '((window.__tlgScrollResolver && window.__tlgScrollResolver.getY) ? window.__tlgScrollResolver.getY() : (window.scrollY || window.pageYOffset || document.documentElement.scrollTop || document.body.scrollTop || 0));';
 
   static String scrollToY(double y) =>
       '(function() { '
@@ -34,8 +29,7 @@ class JsInjection {
   const TARGET = $y;
   const maxTime = 25000;
   const start = Date.now();
-  const STEP_TIMEOUT = 2500;
-  const STALL_LIMIT = 4;
+  const STALL_LIMIT = 8;
 
   const resolver = window.__tlgScrollResolver;
   const container = resolver ? resolver.getContainer() : (document.scrollingElement || document.documentElement || document.body);
@@ -139,6 +133,8 @@ class JsInjection {
 
   let status = 'timeout';
   let stalls = 0;
+  let targetStalls = 0;
+  let currentScroll = 0;
 
   async function run() {
     try {
@@ -154,21 +150,44 @@ class JsInjection {
         // Verify/scroll to target
         if (maxScroll >= TARGET) {
           scrollTo(TARGET);
-          await new Promise(r => setTimeout(r, 100));
-          if (Math.abs(getScrollY() - TARGET) < 10) {
-            status = 'reached';
-            break;
+          
+          // Wait and verify if the page height is still growing (images loading above us)
+          const stepStart = Date.now();
+          let grew = false;
+          while (Date.now() - stepStart < 800) {
+            await new Promise(r => setTimeout(r, 100));
+            if (getScrollHeight() > currentHeight) {
+              grew = true;
+              break;
+            }
           }
-          continue; // Retry target, do not overshoot to maxScroll
+
+          if (grew) {
+            targetStalls = 0;
+            continue; // Re-clamp to TARGET in the next loop
+          } else {
+            targetStalls++;
+            // If height is stable for ~1.6 seconds (2 checks), we're done
+            if (targetStalls >= 2) {
+              if (Math.abs(getScrollY() - TARGET) < 10) {
+                status = 'reached';
+              } else {
+                status = 'end-of-content';
+              }
+              break;
+            }
+            continue;
+          }
         }
 
-        // Scroll to current bottom to trigger lazy loading
-        scrollTo(maxScroll);
+        // Scroll incrementally to trigger lazy loading along the way
+        currentScroll = Math.min(currentScroll + 1000, maxScroll);
+        scrollTo(currentScroll);
 
         // Wait for page to grow
         const stepStart = Date.now();
         let grew = false;
-        while (Date.now() - stepStart < STEP_TIMEOUT) {
+        while (Date.now() - stepStart < 600) {
           await new Promise(r => setTimeout(r, 100));
           if (getScrollHeight() > currentHeight) {
             grew = true;
@@ -179,11 +198,13 @@ class JsInjection {
         if (grew) {
           stalls = 0;
         } else {
-          stalls++;
-          if (stalls >= STALL_LIMIT) {
-            scrollTo(TARGET); // Final clamp scroll
-            status = 'end-of-content';
-            break;
+          if (currentScroll >= maxScroll) {
+            stalls++;
+            if (stalls >= STALL_LIMIT) {
+              scrollTo(TARGET); // Final clamp scroll
+              status = 'end-of-content';
+              break;
+            }
           }
         }
       }

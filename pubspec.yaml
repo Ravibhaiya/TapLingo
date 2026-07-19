@@ -71,8 +71,7 @@ flutter:
   uses-material-design: true
 
   assets:
-    - assets/js/novel_tap.js
-    - assets/js/manga_tap.js
+    - assets/js/reader_tap.js
     - assets/logo.svg
 
   # An image asset can refer to one or more resolution-specific "variants", see
