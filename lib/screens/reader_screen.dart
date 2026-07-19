@@ -125,6 +125,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   }
 
   Future<void> _maybeRestoreScroll(String url) async {
+    if (!mounted) return;
     if (_restoredScroll) return;
 
     final currentItem = ref.read(libraryProvider).firstWhere(
@@ -158,7 +159,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       await _controller.runJavaScript(JsInjection.scrollWithImageWait(y));
     } else {
       // For novels: simple retry is sufficient since text content is deterministic.
-      _restoringScroll = true;
+      if (mounted) setState(() => _restoringScroll = true);
       for (final delay in [200, 500, 1000, 1500, 2500]) {
         await Future<void>.delayed(Duration(milliseconds: delay));
         if (!mounted) return;
@@ -166,7 +167,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
           await _controller.runJavaScript(JsInjection.scrollToY(y));
         } catch (_) {}
       }
-      _restoringScroll = false;
+      if (mounted) setState(() => _restoringScroll = false);
     }
   }
 
@@ -231,7 +232,11 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       // Handle scroll restoration message from injected JS
       if (map['type'] == 'scrollRestoration') {
         _restorationFallbackTimer?.cancel();
-        _restoringScroll = false;
+        if (mounted) {
+          setState(() {
+            _restoringScroll = false;
+          });
+        }
         final status = map['status'] as String?;
         debugPrint('[ScrollRestoration] Completed with status: $status');
         return;
@@ -480,7 +485,20 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
             Hero(
               tag: 'library-${widget.item.id}',
               child: Material(
-                child: WebViewWidget(controller: _controller),
+                child: Stack(
+                  children: [
+                    WebViewWidget(controller: _controller),
+                    if (_loading || _restoringScroll)
+                      Positioned.fill(
+                        child: Container(
+                          color: Theme.of(context).scaffoldBackgroundColor,
+                          child: const Center(
+                            child: CircularProgressIndicator(),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
               ),
             ),
             AnimatedSlide(
@@ -550,7 +568,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
                 ),
               ),
             ),
-            if (_loading)
+            if (_loading || _restoringScroll)
               const Positioned(
                 top: 0,
                 left: 0,
