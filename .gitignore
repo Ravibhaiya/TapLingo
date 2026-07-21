@@ -52,3 +52,7 @@ key.properties
 *.jks
 *.keystore
 test/api_key.json
+
+# Node / Puppeteer scratch work
+node_modules/
+scratch/

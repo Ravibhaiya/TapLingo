@@ -36,6 +36,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   bool _restoredScroll = false;
   bool _restoringScroll = false;
   bool _isBottomSheetOpen = false;
+  DateTime _lastProgressSave = DateTime.fromMillisecondsSinceEpoch(0);
 
   bool get _isManga => widget.item.type == LibraryType.manga;
 
@@ -245,7 +246,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
         if (!_restoringScroll) {
           final y = (map['y'] as num?)?.toDouble() ?? 0.0;
           final url = map['url'] as String?;
-          if (url != null && url.isNotEmpty) {
+          final now = DateTime.now();
+          if (url != null && url.isNotEmpty &&
+              now.difference(_lastProgressSave) > const Duration(milliseconds: 500)) {
+            _lastProgressSave = now;
             ref.read(libraryProvider.notifier).updateProgress(
                   id: widget.item.id,
                   lastReadUrl: url,
@@ -504,6 +508,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     }
   }
 
+  static const int _maxImageBytes = 12 * 1024 * 1024; // 12 MB guard
+
   Future<Uint8List?> _downloadImage(String url) async {
     try {
       final uri = Uri.parse(url);
@@ -516,11 +522,20 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
               'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
         },
       ).timeout(const Duration(seconds: 15));
-      if (response.statusCode >= 200 && response.statusCode < 300) {
-        return response.bodyBytes;
+
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        debugPrint('[Reader] Image download failed: HTTP ${response.statusCode} for $url');
+        return null;
       }
-    } catch (_) {}
-    return null;
+      if (response.bodyBytes.length > _maxImageBytes) {
+        debugPrint('[Reader] Image too large (${response.bodyBytes.length} bytes), skipping: $url');
+        return null;
+      }
+      return response.bodyBytes;
+    } catch (e) {
+      debugPrint('[Reader] Image download error for $url: $e');
+      return null;
+    }
   }
 
   void _promptForApiKey() {

@@ -97,3 +97,37 @@ Future<Uint8List?> cropSelectedRect({
   cropped.dispose();
   return byteData?.buffer.asUint8List();
 }
+
+/// Downscale an image so its longest edge is at most [maxEdge] px,
+/// re-encoded as PNG. Returns [bytes] unchanged if already small enough.
+/// Manga is line-art, so PNG stays small while cutting Gemini input cost.
+Future<Uint8List> downscaleImage(Uint8List bytes, {int maxEdge = 1568}) async {
+  final codec = await ui.instantiateImageCodec(bytes);
+  final frame = await codec.getNextFrame();
+  final image = frame.image;
+
+  final longest = math.max(image.width, image.height);
+  if (longest <= maxEdge) {
+    image.dispose();
+    return bytes;
+  }
+
+  final scale = maxEdge / longest;
+  final w = (image.width * scale).round();
+  final h = (image.height * scale).round();
+
+  final recorder = ui.PictureRecorder();
+  final canvas = ui.Canvas(recorder);
+  canvas.drawImageRect(
+    image,
+    ui.Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble()),
+    ui.Rect.fromLTWH(0, 0, w.toDouble(), h.toDouble()),
+    ui.Paint()..filterQuality = ui.FilterQuality.medium,
+  );
+  final picture = recorder.endRecording();
+  final scaled = await picture.toImage(w, h);
+  final byteData = await scaled.toByteData(format: ui.ImageByteFormat.png);
+  image.dispose();
+  scaled.dispose();
+  return byteData?.buffer.asUint8List() ?? bytes;
+}

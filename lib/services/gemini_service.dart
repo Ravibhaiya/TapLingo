@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
 import 'package:taplingo/models/meaning_result.dart';
+import 'package:taplingo/utils/image_crop.dart';
 
 /// Gemini-only AI backend for word/sentence meanings (text + vision).
 class GeminiService {
@@ -154,12 +155,13 @@ class GeminiService {
             'CRITICAL: Keep plainMeaning extremely short and concise. Do not repeat sentences.';
 
     try {
+      final pageBytes = await downscaleImage(fullImageBytes, maxEdge: 1568);
       final response = await _model(apiKey).generateContent(
         [
           Content.multi([
             TextPart(instruction),
             TextPart('Image 1 (Full page):'),
-            DataPart(_mimeOf(fullImageBytes), fullImageBytes),
+            DataPart(_mimeOf(pageBytes), pageBytes),
             TextPart('Image 2 (Crop with red dot at tap):'),
             DataPart('image/png', cropPng),
           ]),

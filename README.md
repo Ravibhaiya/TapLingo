@@ -37,7 +37,7 @@ A sleek, animated bottom sheet parses Gemini’s JSON response into:
 ### Clone & run
 
 ```bash
-git clone https://github.com/<you>/TapLingo.git
+git clone https://github.com/Ravibhaiya/TapLingo.git
 cd TapLingo
 flutter pub get
 flutter run
