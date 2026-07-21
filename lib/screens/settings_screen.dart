@@ -13,15 +13,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   final _keyController = TextEditingController();
   bool _obscure = true;
   bool _saving = false;
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final key = ref.read(geminiApiKeyProvider).value;
-      if (key != null) _keyController.text = key;
-    });
-  }
+  /// Ensures we only seed the text field once from secure storage.
+  bool _keyFieldSeeded = false;
 
   @override
   void dispose() {
@@ -30,19 +23,31 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _save() async {
+    // Avoid saving while the key is still loading — empty field would wipe it.
+    final keyState = ref.read(geminiApiKeyProvider);
+    if (keyState.isLoading || !_keyFieldSeeded) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Still loading saved key… try again')),
+      );
+      return;
+    }
+
     setState(() => _saving = true);
-    await ref.read(geminiApiKeyProvider.notifier).setKey(_keyController.text);
-    if (!mounted) return;
-    setState(() => _saving = false);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          _keyController.text.trim().isEmpty
-              ? 'API key cleared'
-              : 'Gemini API key saved securely',
+    try {
+      await ref.read(geminiApiKeyProvider.notifier).setKey(_keyController.text);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            _keyController.text.trim().isEmpty
+                ? 'API key cleared'
+                : 'Gemini API key saved securely',
+          ),
         ),
-      ),
-    );
+      );
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
   }
 
   @override
@@ -50,6 +55,22 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final themeMode = ref.watch(themeModeProvider);
     final keyAsync = ref.watch(geminiApiKeyProvider);
     final hasKey = keyAsync.value?.isNotEmpty == true;
+
+    // Seed the field once when secure storage finishes (success or error).
+    // Prevents Save-with-empty-field from wiping a key that had not loaded yet.
+    if (!_keyFieldSeeded && !keyAsync.isLoading) {
+      _keyFieldSeeded = true;
+      final key = keyAsync.asData?.value;
+      if (key != null && key.isNotEmpty && _keyController.text.isEmpty) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && _keyController.text.isEmpty) {
+            _keyController.text = key;
+          }
+        });
+      }
+    }
+
+    final keyReady = _keyFieldSeeded && !keyAsync.isLoading;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
@@ -77,22 +98,23 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           TextField(
             controller: _keyController,
             obscureText: _obscure,
+            enabled: keyReady,
             decoration: InputDecoration(
               labelText: 'API key',
-              hintText: 'AIza…',
+              hintText: keyReady ? 'AIza…' : 'Loading…',
               prefixIcon: const Icon(Icons.key_rounded),
               suffixIcon: IconButton(
                 icon: Icon(_obscure ? Icons.visibility : Icons.visibility_off),
                 onPressed: () => setState(() => _obscure = !_obscure),
               ),
             ),
-            onSubmitted: (_) => _save(),
+            onSubmitted: keyReady ? (_) => _save() : null,
           ),
           const SizedBox(height: 12),
           Row(
             children: [
               FilledButton.icon(
-                onPressed: _saving ? null : _save,
+                onPressed: (_saving || !keyReady) ? null : _save,
                 icon: _saving
                     ? const SizedBox(
                         width: 16,
@@ -105,14 +127,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               const SizedBox(width: 12),
               if (hasKey)
                 TextButton(
-                  onPressed: () async {
-                    _keyController.clear();
-                    await ref.read(geminiApiKeyProvider.notifier).clear();
-                    if (!context.mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('API key removed')),
-                    );
-                  },
+                  onPressed: !keyReady
+                      ? null
+                      : () async {
+                          _keyController.clear();
+                          await ref.read(geminiApiKeyProvider.notifier).clear();
+                          if (!context.mounted) return;
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('API key removed')),
+                          );
+                        },
                   child: const Text('Clear'),
                 ),
             ],

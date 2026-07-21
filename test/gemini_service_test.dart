@@ -1,5 +1,4 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:taplingo/models/meaning_result.dart';
 import 'package:taplingo/services/gemini_service.dart';
 
 void main() {

@@ -37,19 +37,27 @@ class GeminiApiKeyNotifier extends AsyncNotifier<String?> {
 
   Future<void> setKey(String key) async {
     state = const AsyncLoading();
-    final trimmed = key.trim();
-    if (trimmed.isEmpty) {
-      await ref.read(secureStorageProvider).clearGeminiApiKey();
-      state = const AsyncData(null);
-      return;
+    try {
+      final trimmed = key.trim();
+      if (trimmed.isEmpty) {
+        await ref.read(secureStorageProvider).clearGeminiApiKey();
+        state = const AsyncData(null);
+        return;
+      }
+      await ref.read(secureStorageProvider).setGeminiApiKey(trimmed);
+      state = AsyncData(trimmed);
+    } catch (e, st) {
+      state = AsyncError(e, st);
     }
-    await ref.read(secureStorageProvider).setGeminiApiKey(trimmed);
-    state = AsyncData(trimmed);
   }
 
   Future<void> clear() async {
-    await ref.read(secureStorageProvider).clearGeminiApiKey();
-    state = const AsyncData(null);
+    try {
+      await ref.read(secureStorageProvider).clearGeminiApiKey();
+      state = const AsyncData(null);
+    } catch (e, st) {
+      state = AsyncError(e, st);
+    }
   }
 }
 

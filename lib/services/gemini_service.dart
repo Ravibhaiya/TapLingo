@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
@@ -218,8 +217,8 @@ class GeminiService {
       final map = jsonDecode(raw) as Map<String, dynamic>;
       return MeaningResult.fromJson(map, taps);
     } catch (e) {
-      print('[GeminiService] Failed to parse JSON. Raw response: "$text"');
-      print('[GeminiService] Parsing error: $e');
+      debugPrint('[GeminiService] Failed to parse JSON. Raw response: "$text"');
+      debugPrint('[GeminiService] Parsing error: $e');
       // Fallback: treat whole text as plain meaning
       return MeaningResult(
         taps: taps,

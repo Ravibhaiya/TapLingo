@@ -101,7 +101,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   void dispose() {
     _restorationFallbackTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
-    _captureScrollPosition();
+    // Do not call async _captureScrollPosition here — after dispose, ref/WebView
+    // may be invalid. Progress is saved via PopScope (awaited) and lifecycle pause.
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     super.dispose();
   }
@@ -186,8 +187,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       final result = await _controller
           .runJavaScriptReturningResult(JsInjection.getScrollY)
           .timeout(const Duration(milliseconds: 250));
+      if (!mounted) return;
       final y = double.tryParse(result.toString()) ?? 0;
       final url = await _controller.currentUrl();
+      if (!mounted) return;
       if (url != null && url.isNotEmpty) {
         await ref.read(libraryProvider.notifier).updateProgress(
               id: widget.item.id,
@@ -284,24 +287,28 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     final taps = payload.taps;
 
     if (!mounted) return;
-    await showMeaningBottomSheet(
-      context: context,
-      taps: taps,
-      fallbackSpeakText: taps == 3 ? sentence : word,
-      sentenceContext: taps != 3 ? sentence : null,
-      load: () async {
-        final gemini = ref.read(geminiServiceProvider);
-        if (taps == 3) {
-          return gemini.explainSentence(apiKey: apiKey, sentence: sentence);
-        }
-        return gemini.explainWord(
-          apiKey: apiKey,
-          word: word,
-          sentence: sentence,
-        );
-      },
-    );
-    if (mounted) _isBottomSheetOpen = false;
+    _isBottomSheetOpen = true;
+    try {
+      await showMeaningBottomSheet(
+        context: context,
+        taps: taps,
+        fallbackSpeakText: taps == 3 ? sentence : word,
+        sentenceContext: taps != 3 ? sentence : null,
+        load: () async {
+          final gemini = ref.read(geminiServiceProvider);
+          if (taps == 3) {
+            return gemini.explainSentence(apiKey: apiKey, sentence: sentence);
+          }
+          return gemini.explainWord(
+            apiKey: apiKey,
+            word: word,
+            sentence: sentence,
+          );
+        },
+      );
+    } finally {
+      if (mounted) _isBottomSheetOpen = false;
+    }
   }
 
   Future<void> _handleImageTap(
@@ -421,71 +428,80 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       
       if (!mounted) return;
       _isBottomSheetOpen = true;
-      await showMeaningBottomSheet(
-        context: context,
-        taps: taps,
-        load: () async {
-          final crop = await cropSelectedRect(
-            fullImageBytes: full,
-            normalizedRect: normalizedRect,
-          );
-          if (crop == null) {
-            return MeaningResult.error('Could not crop the selected region.', taps: taps);
-          }
-          return ref.read(geminiServiceProvider).explainMangaTap(
-            apiKey: apiKey,
-            fullImageBytes: full,
-            cropPng: crop,
-            taps: taps,
-          );
-        },
-      );
-      if (mounted) _isBottomSheetOpen = false;
+      try {
+        await showMeaningBottomSheet(
+          context: context,
+          taps: taps,
+          load: () async {
+            final crop = await cropSelectedRect(
+              fullImageBytes: full,
+              normalizedRect: normalizedRect,
+            );
+            if (crop == null) {
+              return MeaningResult.error(
+                'Could not crop the selected region.',
+                taps: taps,
+              );
+            }
+            return ref.read(geminiServiceProvider).explainMangaTap(
+                  apiKey: apiKey,
+                  fullImageBytes: full,
+                  cropPng: crop,
+                  taps: taps,
+                );
+          },
+        );
+      } finally {
+        if (mounted) _isBottomSheetOpen = false;
+      }
       return;
     }
 
     _isBottomSheetOpen = true;
-    await showMeaningBottomSheet(
-      context: context,
-      taps: taps,
-      load: () async {
-        if (imageSrc == null || imageSrc.isEmpty) {
-          return MeaningResult.error(
-            'Could not find an image under your tap. Try tapping on the image.',
-            taps: taps,
-          );
-        }
-        final full = await _downloadImage(imageSrc);
-        if (full == null) {
-          return MeaningResult.error(
-            'Could not download the page image. The site may block hotlinking.',
-            taps: taps,
-          );
-        }
-        final crop = await cropAroundTap(
-          fullImageBytes: full,
-          x: relX,
-          y: relY,
-          viewportWidth: imgW,
-          viewportHeight: imgH,
-          cropSize: 220,
-        );
-        if (crop == null) {
-          return MeaningResult.error(
-            'Could not crop the tapped region.',
-            taps: taps,
-          );
-        }
-
-        return ref.read(geminiServiceProvider).explainMangaTap(
-              apiKey: apiKey,
-              fullImageBytes: full,
-              cropPng: crop,
+    try {
+      await showMeaningBottomSheet(
+        context: context,
+        taps: taps,
+        load: () async {
+          if (imageSrc == null || imageSrc.isEmpty) {
+            return MeaningResult.error(
+              'Could not find an image under your tap. Try tapping on the image.',
               taps: taps,
             );
-      },
-    );
-    if (mounted) _isBottomSheetOpen = false;
+          }
+          final full = await _downloadImage(imageSrc);
+          if (full == null) {
+            return MeaningResult.error(
+              'Could not download the page image. The site may block hotlinking.',
+              taps: taps,
+            );
+          }
+          final crop = await cropAroundTap(
+            fullImageBytes: full,
+            x: relX,
+            y: relY,
+            viewportWidth: imgW,
+            viewportHeight: imgH,
+            cropSize: 220,
+          );
+          if (crop == null) {
+            return MeaningResult.error(
+              'Could not crop the tapped region.',
+              taps: taps,
+            );
+          }
+
+          return ref.read(geminiServiceProvider).explainMangaTap(
+                apiKey: apiKey,
+                fullImageBytes: full,
+                cropPng: crop,
+                taps: taps,
+              );
+        },
+      );
+    } finally {
+      if (mounted) _isBottomSheetOpen = false;
+    }
   }
 
   Future<Uint8List?> _downloadImage(String url) async {

@@ -17,6 +17,7 @@ void main() {
         apiKey = map['key'] as String? ?? '';
       }
     } catch (e) {
+      // ignore: avoid_print
       print('Could not load API key: $e');
     }
   });
